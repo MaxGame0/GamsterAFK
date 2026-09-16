@@ -1,0 +1,16 @@
+{
+  "name": "dark-afk-client",
+  "version": "1.0.0",
+  "description": "Minecraft Dark AFK Client with Web Dashboard",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5",
+    "mineflayer": "^4.20.0",
+    "socks": "^2.8.3"
+  }
+}
+
