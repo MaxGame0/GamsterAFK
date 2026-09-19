@@ -3,14 +3,13 @@ const http = require('http');
 const { Server } = require('socket.io');
 const mineflayer = require('mineflayer');
 const socks = require('socks');
-const fs = require('fs');
 const path = require('path');
 
-// GLOBAL ERROR HANDLERS (Prevents Cloud Clusters container crashes on proxy drops)
+// GLOBAL ERROR GUARDS (Prevents VPS/Container Crashes)
 process.on('uncaughtException', (err) => {
   console.error('[CRASH GUARD] Uncaught Exception:', err.message);
 });
-process.on('unhandledRejection', (reason, promise) => {
+process.on('unhandledRejection', (reason) => {
   console.error('[CRASH GUARD] Unhandled Rejection:', reason);
 });
 
@@ -24,23 +23,13 @@ app.use(express.json());
 const TARGET_AFK_MS = (20 * 3600 + 10 * 60) * 1000; // 20 Hours 10 Minutes
 const MAX_DROPS = 5;
 
-let proxies = [];
+let runtimeProxies = [];
 let staffMembers = ['Henriks9', 'Admin', 'StaffMember'];
 let activeBots = new Map();
 let proxyDownList = [];
 let targetCompletedList = [];
 let bannedBotsList = [];
 let logs = [];
-
-function loadProxies() {
-  if (fs.existsSync('proxies.txt')) {
-    const data = fs.readFileSync('proxies.txt', 'utf8');
-    proxies = data.split('\n').map(p => p.trim()).filter(p => p.length > 0);
-  } else {
-    proxies = [];
-  }
-}
-loadProxies();
 
 function logMsg(msg, type = 'info') {
   const timestamp = new Date().toLocaleTimeString();
@@ -52,9 +41,9 @@ function logMsg(msg, type = 'info') {
 }
 
 function getProxyForBotIndex(index) {
-  if (proxies.length === 0) return null;
-  const proxyIndex = Math.floor(index / 4) % proxies.length;
-  return proxies[proxyIndex];
+  if (runtimeProxies.length === 0) return null;
+  const proxyIndex = Math.floor(index / 4) % runtimeProxies.length;
+  return runtimeProxies[proxyIndex];
 }
 
 function createBotInstance(username, password, index) {
@@ -67,7 +56,7 @@ function createBotInstance(username, password, index) {
     version: '1.8.9'
   };
 
-  // CLOUD CLUSTERS COMPATIBLE SOCKS5 HANDLER
+  // Cloud Clusters Compatible Socks5 Handler
   if (assignedProxy) {
     const [host, port, proxyUser, proxyPass] = assignedProxy.split(':');
     botOptions.connect = (client) => {
@@ -305,20 +294,32 @@ function broadcastState() {
     staff: staffMembers,
     proxyDown: proxyDownList,
     targetCompleted: targetCompletedList,
-    bannedBots: bannedBotsList,
-    proxiesLoaded: proxies.length
+    bannedBots: bannedBotsList
   });
 }
 
 io.on('connection', (socket) => {
   broadcastState();
 
-  socket.on('start_bots', (botList) => {
+  socket.on('start_bots_fleet', (payload) => {
+    const { botList, proxyList } = payload;
+    runtimeProxies = proxyList || [];
+    
+    logMsg(`Launching fleet of ${botList.length} bots...`, 'info');
     botList.forEach((b, index) => {
       if (!activeBots.has(b.username)) {
         createBotInstance(b.username, b.password, index);
       }
     });
+  });
+
+  socket.on('stop_all_bots', () => {
+    logMsg(`Stopping all active bots...`, 'warn');
+    activeBots.forEach((botData) => {
+      if (botData.instance) botData.instance.quit();
+    });
+    activeBots.clear();
+    broadcastState();
   });
 
   socket.on('stop_bot', (username) => {
@@ -343,9 +344,7 @@ io.on('connection', (socket) => {
   });
 });
 
-// CLOUD CLUSTERS BINDING
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`GamsterMan running on Cloud Clusters port ${PORT}`);
+  console.log(`GamsterMan server running on port ${PORT}`);
 });
-               
