@@ -22,11 +22,8 @@ app.use(express.json());
 const TARGET_AFK_MS = (20 * 3600 + 10 * 60) * 1000; // 20 hours 10 minutes
 const MAX_DROPS = 5;
 
-let runtimeProxies = [];
 let staffMembers = ['Henriks9', 'Admin', 'StaffMember'];
 let activeBots = new Map();
-
-// Saved Bot Database for preserving password & accumulated AFK uptime across restarts/proxy switches
 let savedBotStates = new Map(); // username -> { password, accruedAfkMs }
 
 let proxyDownList = [];
@@ -43,50 +40,67 @@ function logMsg(msg, type = 'info') {
   console.log(`[${type.toUpperCase()}] ${timestamp} - ${msg}`);
 }
 
-function getProxyForBotIndex(index) {
-  if (runtimeProxies.length === 0) return null;
-  const proxyIndex = Math.floor(index / 4) % runtimeProxies.length;
-  return runtimeProxies[proxyIndex];
+function parseProxyString(proxyStr) {
+  if (!proxyStr) return null;
+  const parts = proxyStr.trim().split(':');
+  if (parts.length < 2) return null;
+
+  return {
+    host: parts[0].trim(),
+    port: parseInt(parts[1].trim(), 10),
+    userId: parts[2] && parts[2].trim() !== '' ? parts[2].trim() : undefined,
+    password: parts[3] && parts[3].trim() !== '' ? parts[3].trim() : undefined
+  };
 }
 
-function createBotInstance(username, password, assignedProxy) {
-  // Store or load credentials & saved uptime
+function createBotInstance(serverHostStr, username, password, assignedProxy) {
   let savedState = savedBotStates.get(username);
   if (!savedState) {
     savedState = { password, accruedAfkMs: 0 };
     savedBotStates.set(username, savedState);
+  } else if (password) {
+    savedState.password = password; // update password if provided
   }
 
+  const hostParts = (serverHostStr || 'gamester.org:25565').split(':');
+  const targetHost = hostParts[0].trim();
+  const targetPort = hostParts[1] ? parseInt(hostParts[1].trim(), 10) : 25565;
+
   const botOptions = {
-    host: 'gamester.org',
-    port: 25565,
+    host: targetHost,
+    port: targetPort,
     username: username,
     version: '1.8.9'
   };
 
   if (assignedProxy) {
-    const [host, port, proxyUser, proxyPass] = assignedProxy.split(':');
-    botOptions.connect = (client) => {
-      socks.SocksClient.createConnection({
-        proxy: {
-          host: host,
-          port: parseInt(port, 10),
-          type: 5,
-          userId: proxyUser || '',
-          password: proxyPass || ''
-        },
-        command: 'connect',
-        destination: { host: 'gamester.org', port: 25565 }
-      }, (err, info) => {
-        if (err) {
-          logMsg(`Proxy connection failed for ${username}: ${err.message}`, 'error');
-          handleBotDrop(username);
-          return;
-        }
-        client.setSocket(info.socket);
-        client.emit('connect');
-      });
-    };
+    const p = parseProxyString(assignedProxy);
+    if (p) {
+      botOptions.connect = (client) => {
+        socks.SocksClient.createConnection({
+          proxy: {
+            host: p.host,
+            port: p.port,
+            type: 5,
+            userId: p.userId,
+            password: p.password
+          },
+          command: 'connect',
+          destination: { host: targetHost, port: targetPort },
+          timeout: 10000
+        }, (err, info) => {
+          if (err) {
+            logMsg(`Proxy failed for ${username} (${p.host}:${p.port}): ${err.message}`, 'error');
+            handleBotDrop(username);
+            return;
+          }
+
+          // Single handshake connection setup:
+          // DO NOT emit 'connect' here - setSocket emits 'connect' internally.
+          client.setSocket(info.socket);
+        });
+      };
+    }
   }
 
   const bot = mineflayer.createBot(botOptions);
@@ -94,8 +108,9 @@ function createBotInstance(username, password, assignedProxy) {
   const botData = {
     username,
     password: savedState.password,
+    serverHost: `${targetHost}:${targetPort}`,
     proxy: assignedProxy || 'Direct / None',
-    ping: 40,
+    ping: 0,
     dropCount: 0,
     sessionStartTime: null,
     status: 'Connecting',
@@ -128,7 +143,7 @@ function createBotInstance(username, password, assignedProxy) {
 
   bot.on('spawn', () => {
     botData.status = 'Online (In Hub)';
-    logMsg(`Bot ${username} connected to server.`, 'success');
+    logMsg(`Bot ${username} spawned on ${targetHost}.`, 'success');
   });
 
   bot.on('chat', (usernameMsg, message) => {
@@ -267,9 +282,8 @@ function handleBotDrop(username) {
 
   if (botData.dropCount >= MAX_DROPS) {
     const savedState = savedBotStates.get(username);
-    logMsg(`Bot ${username} reached drop limit. Moving to Proxy Down.`, 'error');
+    logMsg(`Bot ${username} reached drop limit. Moved to Proxy Down table.`, 'error');
     
-    // Add to Proxy Down List with Password & Preserved Uptime
     proxyDownList = proxyDownList.filter(p => p.username !== username);
     proxyDownList.push({
       username: botData.username,
@@ -330,6 +344,7 @@ function broadcastState() {
   const botsArray = Array.from(activeBots.values()).map(b => ({
     username: b.username,
     password: b.password,
+    serverHost: b.serverHost,
     proxy: b.proxy,
     ping: b.ping,
     dropCount: b.dropCount,
@@ -350,51 +365,25 @@ function broadcastState() {
 io.on('connection', (socket) => {
   broadcastState();
 
-  socket.on('start_bots_fleet', (payload) => {
-    const { botList, proxyList } = payload;
-    runtimeProxies = proxyList || [];
-
-    botList.forEach((b, index) => {
-      const proxy = getProxyForBotIndex(index);
-      if (!activeBots.has(b.username)) {
-        createBotInstance(b.username, b.password, proxy);
-      }
-    });
-  });
-
-  // Revive up to 4 Bots with 1 new Proxy, keeping preserved uptime!
-  socket.on('revive_bots', (payload) => {
-    const { usernames, newProxy } = payload;
-    logMsg(`Reviving ${usernames.length} bot(s) using new proxy: ${newProxy}`, 'info');
+  // Unified Batch launch handler: Server IP + Password + Up to 4 Users + 1 SOCKS5 Proxy
+  socket.on('launch_batch', (payload) => {
+    const { serverHost, password, usernames, proxy } = payload;
+    logMsg(`Launching batch of ${usernames.length} bot(s) on proxy ${proxy}...`, 'info');
 
     usernames.forEach(uname => {
-      // Remove from Proxy Down list if present
+      // Clean up proxy down entry if reviving
       proxyDownList = proxyDownList.filter(p => p.username !== uname);
 
-      // Fetch saved credentials
-      const savedState = savedBotStates.get(uname);
-      const password = savedState ? savedState.password : 'unknown';
-
-      // Disconnect if running
+      // Disconnect if currently running
       if (activeBots.has(uname)) {
         const bData = activeBots.get(uname);
         if (bData.instance) bData.instance.quit();
         activeBots.delete(uname);
       }
 
-      // Re-launch with new proxy while keeping accrued AFK uptime
-      createBotInstance(uname, password, newProxy);
+      createBotInstance(serverHost, uname, password, proxy);
     });
 
-    broadcastState();
-  });
-
-  socket.on('stop_all_bots', () => {
-    activeBots.forEach((botData, uname) => {
-      saveBotUptime(uname);
-      if (botData.instance) botData.instance.quit();
-    });
-    activeBots.clear();
     broadcastState();
   });
 
@@ -425,4 +414,4 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`GamsterMan server running on port ${PORT}`);
 });
-             
+        
