@@ -1,19 +1,367 @@
-/**
- * Dark AFK / GamsterMan Client - Main Entry Point
- */
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dark AFK Client Pro - Dashboard</title>
+  <style>
+    :root {
+      --bg-dark: #0f111a;
+      --bg-card: #181b28;
+      --accent: #7289da;
+      --accent-hover: #5b6eae;
+      --danger: #ed4245;
+      --success: #3ba55d;
+      --warning: #faa81a;
+      --text-main: #f6f6f7;
+      --text-muted: #b9bbbe;
+      --border: #23273a;
+    }
 
-// Global Exception Guards - Prevents crash on proxy socket drops or network timeouts
-process.on('uncaughtException', (err) => {
-  console.error('[CRASH GUARD] Uncaught Exception:', err.stack || err.message);
-});
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
 
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('[CRASH GUARD] Unhandled Rejection at:', promise, 'reason:', reason);
-});
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      padding: 20px;
+      line-height: 1.5;
+    }
 
-console.log('====================================================');
-console.log('  [Dark AFK Client Pro] Launching Dashboard Service ');
-console.log('====================================================');
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 25px;
+    }
 
-// Start the Express & Socket.IO server
-require('./server.js');
+    h1 { font-size: 1.5rem; color: #fff; }
+    
+    .stats-bar {
+      display: flex;
+      gap: 15px;
+      font-size: 0.9rem;
+      background: var(--bg-card);
+      padding: 8px 16px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 900px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+
+    .card h2 {
+      font-size: 1.1rem;
+      margin-bottom: 15px;
+      color: var(--accent);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+    }
+
+    .form-group {
+      margin-bottom: 12px;
+    }
+
+    label {
+      display: block;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
+    input, textarea {
+      width: 100%;
+      background: #0d0e15;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 8px 12px;
+      color: #fff;
+      font-size: 0.9rem;
+    }
+
+    input:focus, textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    button {
+      width: 100%;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      padding: 10px;
+      border-radius: 4px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    button:hover { background: var(--accent-hover); }
+
+    .bot-card {
+      background: #0d0e15;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 15px;
+      margin-bottom: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .bot-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .bot-title {
+      font-weight: bold;
+      font-size: 1rem;
+    }
+
+    .status-badge {
+      font-size: 0.75rem;
+      padding: 2px 8px;
+      border-radius: 12px;
+      background: var(--warning);
+      color: #000;
+      font-weight: bold;
+    }
+
+    .status-badge.online { background: var(--success); color: #fff; }
+
+    .bot-meta {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      display: flex;
+      gap: 15px;
+    }
+
+    .logs-box {
+      background: #050608;
+      border-radius: 4px;
+      padding: 8px;
+      font-family: monospace;
+      font-size: 0.78rem;
+      color: #8a8d93;
+      max-height: 80px;
+      overflow-y: auto;
+    }
+
+    .btn-danger {
+      background: var(--danger);
+      width: auto;
+      padding: 4px 10px;
+      font-size: 0.8rem;
+    }
+
+    .btn-danger:hover { background: #c03537; }
+
+    .staff-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .staff-chip {
+      background: #0d0e15;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 4px 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.85rem;
+    }
+
+    .staff-chip img {
+      border-radius: 50%;
+    }
+
+    .remove-staff {
+      cursor: pointer;
+      color: var(--danger);
+      margin-left: 4px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>Dark AFK Client Pro</h1>
+    <div class="stats-bar">
+      <div>CPU: <strong id="cpu-stat">0%</strong></div>
+      <div>RAM: <strong id="ram-stat">0%</strong></div>
+    </div>
+  </header>
+
+  <div class="grid">
+    <div>
+      <div class="card">
+        <h2>Deploy Bots</h2>
+        <div class="form-group">
+          <label>Server IP</label>
+          <input type="text" id="serverIP" value="gamester.org:25565">
+        </div>
+        <div class="form-group">
+          <label>Usernames (1 per line or comma separated)</label>
+          <textarea id="usernames" rows="4" placeholder="BotName1&#10;BotName2"></textarea>
+        </div>
+        <div class="form-group">
+          <label>In-game Password</label>
+          <input type="password" id="password" placeholder="e.g. MyPassword123">
+        </div>
+        <div class="form-group">
+          <label>SOCKS5 Proxy (host:port:user:pass)</label>
+          <input type="text" id="proxy" placeholder="127.0.0.1:1080">
+        </div>
+        <button id="deploy-btn">Launch Deployment</button>
+      </div>
+
+      <div class="card">
+        <h2>Staff Evasion Watcher</h2>
+        <div class="form-group" style="display:flex; gap: 8px;">
+          <input type="text" id="staff-input" placeholder="Staff Username">
+          <button id="add-staff-btn" style="width: 80px;">Add</button>
+        </div>
+        <div class="staff-list" id="staff-container"></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <h2>Active Bots (<span id="active-count">0</span>)</h2>
+        <div id="active-bots-container">
+          <p style="color: var(--text-muted); font-size: 0.9rem;">No active bots deployed.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Proxy Down / Dropped Bots (<span id="dropped-count">0</span>)</h2>
+        <div id="dropped-bots-container">
+          <p style="color: var(--text-muted); font-size: 0.9rem;">No dropped bots.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+
+    const cpuStat = document.getElementById('cpu-stat');
+    const ramStat = document.getElementById('ram-stat');
+    const activeCount = document.getElementById('active-count');
+    const activeContainer = document.getElementById('active-bots-container');
+    const droppedCount = document.getElementById('dropped-count');
+    const droppedContainer = document.getElementById('dropped-bots-container');
+    const staffContainer = document.getElementById('staff-container');
+
+    document.getElementById('deploy-btn').addEventListener('click', () => {
+      const serverIP = document.getElementById('serverIP').value;
+      const usernamesRaw = document.getElementById('usernames').value;
+      const password = document.getElementById('password').value;
+      const proxy = document.getElementById('proxy').value;
+
+      socket.emit('deploy_bots', { serverIP, usernamesRaw, password, proxy });
+    });
+
+    document.getElementById('add-staff-btn').addEventListener('click', () => {
+      const input = document.getElementById('staff-input');
+      if (input.value.trim()) {
+        socket.emit('add_staff', input.value.trim());
+        input.value = '';
+      }
+    });
+
+    socket.on('dashboard_update', (data) => {
+      cpuStat.textContent = data.system.cpuLoad + '%';
+      ramStat.textContent = data.system.ramUsage + '%';
+
+      // Active Bots
+      activeCount.textContent = data.active.length;
+      if (data.active.length === 0) {
+        activeContainer.innerHTML = '<p style="color: var(--text-muted); font-size: 0.9rem;">No active bots deployed.</p>';
+      } else {
+        activeContainer.innerHTML = data.active.map(bot => `
+          <div class="bot-card">
+            <div class="bot-header">
+              <span class="bot-title">${bot.username}</span>
+              <span class="status-badge ${bot.status.includes('Online') ? 'online' : ''}">${bot.status}</span>
+            </div>
+            <div class="bot-meta">
+              <span>Server: ${bot.server}</span>
+              <span>Uptime: ${bot.uptime}</span>
+              <span>Ping: ${bot.ping}ms</span>
+            </div>
+            <div class="logs-box">
+              ${bot.logs.map(l => `<div>${l}</div>`).join('')}
+            </div>
+            <div style="text-align: right;">
+              <button class="btn-danger" onclick="stopBot('${bot.id}')">Disconnect</button>
+            </div>
+          </div>
+        `).join('');
+      }
+
+      // Dropped Bots
+      droppedCount.textContent = data.proxyDown.length;
+      if (data.proxyDown.length === 0) {
+        droppedContainer.innerHTML = '<p style="color: var(--text-muted); font-size: 0.9rem;">No dropped bots.</p>';
+      } else {
+        droppedContainer.innerHTML = data.proxyDown.map(bot => `
+          <div class="bot-card" style="border-color: var(--danger);">
+            <div class="bot-header">
+              <span class="bot-title">${bot.username}</span>
+              <span class="status-badge" style="background: var(--danger); color: #fff;">Dropped</span>
+            </div>
+            <div class="bot-meta">
+              <span>Reason: ${bot.reason}</span>
+              <span>Time: ${bot.timestamp}</span>
+            </div>
+          </div>
+        `).join('');
+      }
+
+      // Staff List
+      staffContainer.innerHTML = data.staff.map(s => `
+        <div class="staff-chip">
+          <img src="${s.head}" width="16" height="16" alt="${s.name}">
+          <span>${s.name}</span>
+          <span class="remove-staff" onclick="removeStaff('${s.name}')">&times;</span>
+        </div>
+      `).join('');
+    });
+
+    function stopBot(id) {
+      socket.emit('stop_bot', id);
+    }
+
+    function removeStaff(name) {
+      socket.emit('remove_staff', name);
+    }
+
+    socket.on('deploy_success', (msg) => alert(msg));
+    socket.on('deploy_error', (msg) => alert(msg));
+  </script>
+</body>
+</html>
