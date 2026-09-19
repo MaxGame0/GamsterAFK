@@ -5,7 +5,6 @@ const mineflayer = require('mineflayer');
 const socks = require('socks');
 const path = require('path');
 
-// GLOBAL ERROR GUARDS (Prevents VPS/Container Crashes)
 process.on('uncaughtException', (err) => {
   console.error('[CRASH GUARD] Uncaught Exception:', err.message);
 });
@@ -20,12 +19,16 @@ const io = new Server(server);
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-const TARGET_AFK_MS = (20 * 3600 + 10 * 60) * 1000; // 20 Hours 10 Minutes
+const TARGET_AFK_MS = (20 * 3600 + 10 * 60) * 1000; // 20 hours 10 minutes
 const MAX_DROPS = 5;
 
 let runtimeProxies = [];
 let staffMembers = ['Henriks9', 'Admin', 'StaffMember'];
 let activeBots = new Map();
+
+// Saved Bot Database for preserving password & accumulated AFK uptime across restarts/proxy switches
+let savedBotStates = new Map(); // username -> { password, accruedAfkMs }
+
 let proxyDownList = [];
 let targetCompletedList = [];
 let bannedBotsList = [];
@@ -46,9 +49,14 @@ function getProxyForBotIndex(index) {
   return runtimeProxies[proxyIndex];
 }
 
-function createBotInstance(username, password, index) {
-  const assignedProxy = getProxyForBotIndex(index);
-  
+function createBotInstance(username, password, assignedProxy) {
+  // Store or load credentials & saved uptime
+  let savedState = savedBotStates.get(username);
+  if (!savedState) {
+    savedState = { password, accruedAfkMs: 0 };
+    savedBotStates.set(username, savedState);
+  }
+
   const botOptions = {
     host: 'gamester.org',
     port: 25565,
@@ -56,7 +64,6 @@ function createBotInstance(username, password, index) {
     version: '1.8.9'
   };
 
-  // Cloud Clusters Compatible Socks5 Handler
   if (assignedProxy) {
     const [host, port, proxyUser, proxyPass] = assignedProxy.split(':');
     botOptions.connect = (client) => {
@@ -72,7 +79,7 @@ function createBotInstance(username, password, index) {
         destination: { host: 'gamester.org', port: 25565 }
       }, (err, info) => {
         if (err) {
-          logMsg(`Proxy connection error for ${username}: ${err.message}`, 'error');
+          logMsg(`Proxy connection failed for ${username}: ${err.message}`, 'error');
           handleBotDrop(username);
           return;
         }
@@ -86,12 +93,11 @@ function createBotInstance(username, password, index) {
 
   const botData = {
     username,
-    password,
+    password: savedState.password,
     proxy: assignedProxy || 'Direct / None',
     ping: 40,
     dropCount: 0,
-    afkStartTime: Date.now(),
-    afkDurationMs: 0,
+    sessionStartTime: null,
     status: 'Connecting',
     isLoggedIn: false,
     instance: bot
@@ -122,7 +128,7 @@ function createBotInstance(username, password, index) {
 
   bot.on('spawn', () => {
     botData.status = 'Online (In Hub)';
-    logMsg(`Bot ${username} spawned in server.`, 'success');
+    logMsg(`Bot ${username} connected to server.`, 'success');
   });
 
   bot.on('chat', (usernameMsg, message) => {
@@ -136,8 +142,10 @@ function createBotInstance(username, password, index) {
     botData.ping = latency;
 
     if (botData.isLoggedIn) {
-      botData.afkDurationMs = Date.now() - botData.afkStartTime;
-      if (botData.afkDurationMs >= TARGET_AFK_MS) {
+      const currentSessionMs = Date.now() - botData.sessionStartTime;
+      const totalUptimeMs = savedState.accruedAfkMs + currentSessionMs;
+
+      if (totalUptimeMs >= TARGET_AFK_MS) {
         completeTargetAfk(username);
       }
     }
@@ -162,6 +170,7 @@ function createBotInstance(username, password, index) {
 
   bot.on('end', () => {
     logMsg(`Bot ${username} disconnected.`, 'warn');
+    saveBotUptime(username);
     clearInterval(pingInterval);
   });
 }
@@ -179,7 +188,7 @@ function handleChatPrompts(username, text) {
     bot.chat(`/login ${botData.password}`);
     botData.status = 'Logged In (AFK Active)';
     botData.isLoggedIn = true;
-    botData.afkStartTime = Date.now();
+    botData.sessionStartTime = Date.now();
     scheduleAntiAfk(username);
   }
 }
@@ -216,7 +225,8 @@ function checkStaffEvasion(username, textOrPlayerName) {
   );
 
   if (foundStaff) {
-    logMsg(`STAFF ALERT: ${foundStaff} detected near ${username}! Disconnecting.`, 'error');
+    logMsg(`STAFF ALERT: ${foundStaff} detected near ${username}! Evading.`, 'error');
+    saveBotUptime(username);
     const botData = activeBots.get(username);
     if (botData && botData.instance) {
       botData.instance.quit();
@@ -226,21 +236,50 @@ function checkStaffEvasion(username, textOrPlayerName) {
   }
 }
 
+function saveBotUptime(username) {
+  const botData = activeBots.get(username);
+  const savedState = savedBotStates.get(username);
+  if (botData && savedState && botData.isLoggedIn && botData.sessionStartTime) {
+    const sessionDuration = Date.now() - botData.sessionStartTime;
+    savedState.accruedAfkMs += sessionDuration;
+    botData.sessionStartTime = null;
+    botData.isLoggedIn = false;
+  }
+}
+
+function getTotalBotUptimeMs(username) {
+  const savedState = savedBotStates.get(username);
+  const accrued = savedState ? savedState.accruedAfkMs : 0;
+  const botData = activeBots.get(username);
+  if (botData && botData.isLoggedIn && botData.sessionStartTime) {
+    return accrued + (Date.now() - botData.sessionStartTime);
+  }
+  return accrued;
+}
+
 function handleBotDrop(username) {
+  saveBotUptime(username);
   const botData = activeBots.get(username);
   if (!botData) return;
 
   botData.dropCount += 1;
-  logMsg(`Bot ${username} drop count: ${botData.dropCount}/${MAX_DROPS}`, 'warn');
+  logMsg(`Bot ${username} drops: ${botData.dropCount}/${MAX_DROPS}`, 'warn');
 
   if (botData.dropCount >= MAX_DROPS) {
-    logMsg(`Bot ${username} reached drop limit (${MAX_DROPS}). Moving to Proxy Down.`, 'error');
+    const savedState = savedBotStates.get(username);
+    logMsg(`Bot ${username} reached drop limit. Moving to Proxy Down.`, 'error');
+    
+    // Add to Proxy Down List with Password & Preserved Uptime
+    proxyDownList = proxyDownList.filter(p => p.username !== username);
     proxyDownList.push({
       username: botData.username,
+      password: savedState ? savedState.password : botData.password,
       proxy: botData.proxy,
+      savedUptimeMs: savedState ? savedState.accruedAfkMs : 0,
       reason: `Exceeded ${MAX_DROPS} connection drops`,
       timestamp: new Date().toLocaleTimeString()
     });
+
     if (botData.instance) botData.instance.quit();
     activeBots.delete(username);
   }
@@ -248,11 +287,16 @@ function handleBotDrop(username) {
 }
 
 function handleBannedBot(username, reason) {
+  saveBotUptime(username);
   const botData = activeBots.get(username);
+  const savedState = savedBotStates.get(username);
   if (botData) {
+    bannedBotsList = bannedBotsList.filter(b => b.username !== username);
     bannedBotsList.push({
       username: botData.username,
+      password: savedState ? savedState.password : botData.password,
       proxy: botData.proxy,
+      savedUptimeMs: savedState ? savedState.accruedAfkMs : 0,
       reason,
       timestamp: new Date().toLocaleTimeString()
     });
@@ -263,13 +307,17 @@ function handleBannedBot(username, reason) {
 }
 
 function completeTargetAfk(username) {
+  saveBotUptime(username);
   const botData = activeBots.get(username);
+  const savedState = savedBotStates.get(username);
   if (botData) {
     logMsg(`TARGET ACHIEVED: Bot ${username} completed 20h 10m AFK!`, 'success');
+    targetCompletedList = targetCompletedList.filter(c => c.username !== username);
     targetCompletedList.push({
       username: botData.username,
+      password: savedState ? savedState.password : botData.password,
       proxy: botData.proxy,
-      totalTime: '20h 10m 00s',
+      savedUptimeMs: savedState ? savedState.accruedAfkMs : TARGET_AFK_MS,
       completedAt: new Date().toLocaleTimeString()
     });
     if (botData.instance) botData.instance.quit();
@@ -281,10 +329,11 @@ function completeTargetAfk(username) {
 function broadcastState() {
   const botsArray = Array.from(activeBots.values()).map(b => ({
     username: b.username,
+    password: b.password,
     proxy: b.proxy,
     ping: b.ping,
     dropCount: b.dropCount,
-    afkDurationMs: b.afkDurationMs,
+    afkDurationMs: getTotalBotUptimeMs(b.username),
     status: b.status,
     isLoggedIn: b.isLoggedIn
   }));
@@ -304,18 +353,45 @@ io.on('connection', (socket) => {
   socket.on('start_bots_fleet', (payload) => {
     const { botList, proxyList } = payload;
     runtimeProxies = proxyList || [];
-    
-    logMsg(`Launching fleet of ${botList.length} bots...`, 'info');
+
     botList.forEach((b, index) => {
+      const proxy = getProxyForBotIndex(index);
       if (!activeBots.has(b.username)) {
-        createBotInstance(b.username, b.password, index);
+        createBotInstance(b.username, b.password, proxy);
       }
     });
   });
 
+  // Revive up to 4 Bots with 1 new Proxy, keeping preserved uptime!
+  socket.on('revive_bots', (payload) => {
+    const { usernames, newProxy } = payload;
+    logMsg(`Reviving ${usernames.length} bot(s) using new proxy: ${newProxy}`, 'info');
+
+    usernames.forEach(uname => {
+      // Remove from Proxy Down list if present
+      proxyDownList = proxyDownList.filter(p => p.username !== uname);
+
+      // Fetch saved credentials
+      const savedState = savedBotStates.get(uname);
+      const password = savedState ? savedState.password : 'unknown';
+
+      // Disconnect if running
+      if (activeBots.has(uname)) {
+        const bData = activeBots.get(uname);
+        if (bData.instance) bData.instance.quit();
+        activeBots.delete(uname);
+      }
+
+      // Re-launch with new proxy while keeping accrued AFK uptime
+      createBotInstance(uname, password, newProxy);
+    });
+
+    broadcastState();
+  });
+
   socket.on('stop_all_bots', () => {
-    logMsg(`Stopping all active bots...`, 'warn');
-    activeBots.forEach((botData) => {
+    activeBots.forEach((botData, uname) => {
+      saveBotUptime(uname);
       if (botData.instance) botData.instance.quit();
     });
     activeBots.clear();
@@ -323,6 +399,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('stop_bot', (username) => {
+    saveBotUptime(username);
     const botData = activeBots.get(username);
     if (botData && botData.instance) {
       botData.instance.quit();
@@ -348,3 +425,4 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`GamsterMan server running on port ${PORT}`);
 });
+             
