@@ -15,11 +15,11 @@ app.use(express.static('public'));
 
 // --- In-Memory Database ---
 const users = {
-    'admin': { password: 'admin', role: 'Admin', status: 'Approved' } // Default Admin Credentials
+    'admin': { password: 'admin', role: 'Admin', status: 'Approved' }
 };
-const proxies = []; // Array of { id, host, port, type: 5 }
-const activeBots = new Map(); // botId -> { bot, config, owner, retries, afkInterval }
-const staffList = ['Henriks9', 'AdminSteve', 'ServerMod']; // Staff evasion list
+const proxies = []; 
+const activeBots = new Map(); 
+const staffList = ['Henriks9', 'AdminSteve', 'ServerMod'];
 
 // --- System Telemetry Broadcast ---
 setInterval(async () => {
@@ -43,30 +43,42 @@ setInterval(async () => {
 io.on('connection', (socket) => {
     let currentUser = null;
 
-    // Send initial proxy pool state
     socket.emit('proxy_list_update', proxies);
 
     socket.on('register', (data) => {
-        if (!data.username || !data.password) {
+        if (!data || !data.username || !data.password) {
             return socket.emit('auth_error', 'Username and password are required.');
         }
-        if (users[data.username]) {
-            return socket.emit('auth_error', 'User already exists.');
+        const username = data.username.trim();
+        const password = data.password.trim();
+
+        if (users[username]) {
+            return socket.emit('auth_error', 'Username already exists.');
         }
-        users[data.username] = { password: data.password, role: 'Normal', status: 'Pending' };
-        socket.emit('auth_success', { message: 'Registration submitted successfully! Pending admin approval.' });
+        
+        users[username] = { password, role: 'Normal', status: 'Pending' };
+        socket.emit('auth_success', { message: 'Registration successful! Status: Pending. Log in as admin/admin to approve it.' });
+        
+        // Broadcast update to all admins online
         io.emit('admin_data_refresh', getUsersAndProxies());
     });
 
     socket.on('login', (data) => {
-        const user = users[data.username];
-        if (!user || user.password !== data.password) {
+        if (!data || !data.username || !data.password) {
+            return socket.emit('auth_error', 'Username and password are required.');
+        }
+        const username = data.username.trim();
+        const password = data.password.trim();
+
+        const user = users[username];
+        if (!user || user.password !== password) {
             return socket.emit('auth_error', 'Invalid username or password.');
         }
         if (user.status !== 'Approved') {
             return socket.emit('auth_error', 'Account is pending admin approval.');
         }
-        currentUser = { username: data.username, role: user.role };
+        
+        currentUser = { username, role: user.role };
         socket.emit('login_success', currentUser);
         socket.emit('proxy_list_update', proxies);
     });
@@ -74,10 +86,12 @@ io.on('connection', (socket) => {
     // Admin: Manage Proxies
     socket.on('add_proxy', (data) => {
         if (!currentUser || currentUser.role !== 'Admin') return;
-        const newProxy = { id: uuidv4(), host: data.host, port: parseInt(data.port), type: 5 };
+        if (!data || !data.host || !data.port) return;
+        const newProxy = { id: uuidv4(), host: data.host.trim(), port: parseInt(data.port), type: 5 };
         proxies.push(newProxy);
         io.emit('proxy_list_update', proxies);
         socket.emit('bot_log', { msg: `[Proxy Admin] Added proxy node: ${data.host}:${data.port}` });
+        io.emit('admin_data_refresh', getUsersAndProxies());
     });
 
     socket.on('remove_proxy', (proxyId) => {
@@ -87,6 +101,7 @@ io.on('connection', (socket) => {
             proxies.splice(index, 1);
             io.emit('proxy_list_update', proxies);
             socket.emit('bot_log', { msg: `[Proxy Admin] Removed proxy ID: ${proxyId}` });
+            io.emit('admin_data_refresh', getUsersAndProxies());
         }
     });
 
@@ -100,7 +115,6 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Get Admin Dashboard Data Request
     socket.on('fetch_admin_data', () => {
         if (!currentUser || currentUser.role !== 'Admin') return;
         socket.emit('admin_data_refresh', getUsersAndProxies());
@@ -116,20 +130,20 @@ io.on('connection', (socket) => {
         deployMineflayer(config, socket);
     });
 
-    // Global Chat Action Across All User Bots
+    // Global Chat Action
     socket.on('global_chat', (message) => {
-        if (!currentUser) return;
+        if (!currentUser || !message) return;
         activeBots.forEach((botData) => {
             if (botData.owner === currentUser.username && botData.bot) {
-                botData.bot.chat(message);
-                socket.emit('bot_log', { msg: `[Global Chat Sent from ${botData.bot.username}]: ${message}` });
+                try {
+                    botData.bot.chat(message);
+                    socket.emit('bot_log', { msg: `[Global Chat Sent from ${botData.bot.username}]: ${message}` });
+                } catch(e) {}
             }
         });
     });
 
-    socket.on('disconnect', () => {
-        // Persistent backend connection keeps bots running 24/7 independently of client sockets
-    });
+    socket.on('disconnect', () => {});
 });
 
 function getUsersAndProxies() {
@@ -141,7 +155,7 @@ function getUsersAndProxies() {
     return { users: userList, proxies };
 }
 
-// --- Mineflayer Bot Deployment Engine & Proxies ---
+// --- Mineflayer Deployment Engine ---
 function deployMineflayer(config, socket, isReconnect = false) {
     if (!isReconnect) {
         activeBots.set(config.botId, { config, owner: config.owner, retries: 0 });
@@ -164,24 +178,25 @@ function deployMineflayer(config, socket, isReconnect = false) {
         version: config.version || false,
     };
 
-    // Route through Managed SOCKS5 Proxy if selected
     if (config.proxyId && proxies.length > 0) {
-        const selectedProxy = proxies.find(p => p.id === config.proxyId) || proxies[Math.floor(Math.random() * proxies.length)];
-        botOptions.connect = client => {
-            SocksClient.createConnection({
-                proxy: { ipaddress: selectedProxy.host, port: selectedProxy.port, type: selectedProxy.type },
-                command: 'connect',
-                destination: { host: botOptions.host, port: botOptions.port }
-            }, (err, info) => {
-                if (err) {
-                    socket.emit('bot_log', { msg: `[Proxy Error] SOCKS5 Connection failed: ${err.message}` });
-                    return client.emit('error', err);
-                }
-                client.setSocket(info.socket);
-                client.emit('connect');
-            });
-        };
-        socket.emit('bot_log', { msg: `[Network] Tunneling bot connection through SOCKS5 Proxy -> ${selectedProxy.host}:${selectedProxy.port}` });
+        const selectedProxy = proxies.find(p => p.id === config.proxyId);
+        if (selectedProxy) {
+            botOptions.connect = client => {
+                SocksClient.createConnection({
+                    proxy: { ipaddress: selectedProxy.host, port: selectedProxy.port, type: selectedProxy.type },
+                    command: 'connect',
+                    destination: { host: botOptions.host, port: botOptions.port }
+                }, (err, info) => {
+                    if (err) {
+                        socket.emit('bot_log', { msg: `[Proxy Error] SOCKS5 Connection failed: ${err.message}` });
+                        return client.emit('error', err);
+                    }
+                    client.setSocket(info.socket);
+                    client.emit('connect');
+                });
+            };
+            socket.emit('bot_log', { msg: `[Network] Tunneling connection through SOCKS5 Proxy -> ${selectedProxy.host}:${selectedProxy.port}` });
+        }
     }
 
     const bot = mineflayer.createBot(botOptions);
@@ -190,22 +205,22 @@ function deployMineflayer(config, socket, isReconnect = false) {
 
     bot.once('spawn', () => {
         socket.emit('bot_log', { msg: `[Success] Bot '${bot.username}' has successfully spawned into ${config.host}!` });
-        socket.emit('successful_afk_add', { botId: config.botId, username: bot.username, host: config.host, time: new Date().toLocaleTimeString() });
-        botData.retries = 0; // Reset counter on successful link
+        socket.emit('successful_afk_add', { botId: config.botId, username: bot.username, host: config.host });
+        botData.retries = 0;
 
-        // Cracked Authentication Handler with Delay to Avoid Anti-Spam Kicks
         if (config.auth === 'offline' && config.password) {
             setTimeout(() => {
-                bot.chat(`/register ${config.password} ${config.password}`);
-                socket.emit('bot_log', { msg: `[Auth] Dispatched register command for ${bot.username}` });
-                setTimeout(() => {
-                    bot.chat(`/login ${config.password}`);
-                    socket.emit('bot_log', { msg: `[Auth] Dispatched login authentication for ${bot.username}` });
-                }, 1200);
+                try {
+                    bot.chat(`/register ${config.password} ${config.password}`);
+                    socket.emit('bot_log', { msg: `[Auth] Dispatched register command for ${bot.username}` });
+                    setTimeout(() => {
+                        bot.chat(`/login ${config.password}`);
+                        socket.emit('bot_log', { msg: `[Auth] Dispatched login authentication for ${bot.username}` });
+                    }, 1200);
+                } catch(e) {}
             }, 1800);
         }
 
-        // Pro & Admin Tier Anti-AFK Engine
         if (config.role === 'Pro' || config.role === 'Admin') {
             botData.afkInterval = setInterval(() => {
                 try {
@@ -217,12 +232,11 @@ function deployMineflayer(config, socket, isReconnect = false) {
         }
     });
 
-    // Pro & Admin Tier Staff Evasion System
     if (config.role === 'Pro' || config.role === 'Admin') {
         bot.on('playerJoined', (player) => {
             if (staffList.includes(player.username)) {
-                socket.emit('bot_log', { msg: `[Security Evasion] Staff member '${player.username}' detected! Disconnecting bot for 15s to bypass inspection.` });
-                bot.quit('Staff inspection evasion');
+                socket.emit('bot_log', { msg: `[Security Evasion] Staff member '${player.username}' detected! Disconnecting bot for 15s.` });
+                try { bot.quit('Staff inspection evasion'); } catch(e) {}
             }
         });
     }
@@ -232,17 +246,18 @@ function deployMineflayer(config, socket, isReconnect = false) {
     });
 
     bot.on('end', (reason) => {
-        socket.emit('bot_log', { msg: `[Disconnected] Bot dropped from server. Reason: '${reason}'. Reconnecting in 15 seconds... (Attempt ${botData.retries + 1}/5)` });
+        socket.emit('bot_log', { msg: `[Disconnected] Reason: '${reason}'. Reconnecting in 15s... (Attempt ${botData.retries + 1}/5)` });
         if (botData.afkInterval) clearInterval(botData.afkInterval);
         
         botData.retries++;
         setTimeout(() => {
             deployMineflayer(config, socket, true);
-        }, 15000); // Strict 15 second cool-down reconnect loop
+        }, 15000);
     });
 }
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-    console.log(`NexBot Enterprise backend running seamlessly on port ${PORT}`);
+    console.log(`NexBot Enterprise backend running on port ${PORT}`);
 });
+                
