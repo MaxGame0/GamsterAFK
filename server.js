@@ -2,9 +2,10 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const mineflayer = require('mineflayer');
-const socks = require('socks');
-const path = require('path');
+const { SocksClient } = require('socks');
+const os = require('os');
 
+// Crash Prevention Guards
 process.on('uncaughtException', (err) => {
   console.error('[CRASH GUARD] Uncaught Exception:', err.message);
 });
@@ -16,411 +17,360 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.json());
+app.use(express.static('public'));
 
-const TARGET_AFK_MS = (20 * 3600 + 10 * 60) * 1000; // 20 hours 10 minutes
-const MAX_DROPS = 5;
+// Global State (Dark AFK Pattern)
+let activeBots = [];
+let proxyDownBots = [];
+let successAfkBots = [];
+let bannedBots = [];
 
-let staffMembers = [
-  'Henriks9', 'NaysKutzu', 'Maria_Int', 'Crackernut', 'Arfkek', 
-  'WOST_Ali', 'Space_turtle9', 'akyss', 'lupu_xx_x', 'Fredy_9', 
-  '_PixelWarriorYT_', 'Megasus', 'pintux', 'TheAshz', 'Tini_Alina', 
-  'karlthhkiller3', 'OfficialMex', 'mihaaiiii', 'Gamster', 'ItsB2_', 
-  'GamsterEvent', 'LD007', 'snaccks', 'xSpeed10', 'ATHUL'
+// Staff Evasion List
+let staffList = [
+  "Henriks9", "NaysKutzu", "Maria_Int", "Crackernut", "Arfkek",
+  "WOST_Ali", "Space_turtle9", "akyss", "lupu_xx_x", "Fredy_9",
+  "_PixelWarriorYT_", "Megasus", "pintux", "TheAshz", "Tini_Alina",
+  "karlthhkiller3", "OfficialMex", "mihaaiiii", "Gamster", "ItsB2_",
+  "GamsterEvent", "LD007", "snaccks", "xSpeed10", "ATHUL"
 ];
 
-let activeBots = new Map();
-let savedBotStates = new Map();
-
-let proxyDownList = [];
-let targetCompletedList = [];
-let bannedBotsList = [];
-let logs = [];
-
-function logMsg(msg, type = 'info') {
-  const timestamp = new Date().toLocaleTimeString();
-  const logEntry = { timestamp, msg, type };
-  logs.push(logEntry);
-  if (logs.length > 200) logs.shift();
-  io.emit('log', logEntry);
-  console.log(`[${type.toUpperCase()}] ${timestamp} - ${msg}`);
-}
-
-function parseProxyString(proxyStr) {
+// Helper: Parse SOCKS5 string (ip:port or ip:port:user:pass)
+function parseProxy(proxyStr) {
   if (!proxyStr) return null;
   const parts = proxyStr.trim().split(':');
   if (parts.length < 2) return null;
-
   return {
     host: parts[0].trim(),
     port: parseInt(parts[1].trim(), 10),
-    userId: parts[2] && parts[2].trim() !== '' ? parts[2].trim() : undefined,
-    password: parts[3] && parts[3].trim() !== '' ? parts[3].trim() : undefined
+    userId: parts[2] ? parts[2].trim() : undefined,
+    password: parts[3] ? parts[3].trim() : undefined
   };
 }
 
-function createBotInstance(serverHostStr, username, password, assignedProxy) {
-  let savedState = savedBotStates.get(username);
-  if (!savedState) {
-    savedState = { password, accruedAfkMs: 0 };
-    savedBotStates.set(username, savedState);
-  } else if (password) {
-    savedState.password = password;
-  }
-
-  const hostParts = (serverHostStr || 'gamester.org:25565').split(':');
-  const targetHost = hostParts[0].trim();
-  const targetPort = hostParts[1] ? parseInt(hostParts[1].trim(), 10) : 25565;
+// -------------------- CORE BOT CREATION --------------------
+function startBot(config) {
+  const id = Math.random().toString(36).substring(2, 9);
+  const proxyInfo = parseProxy(config.proxy);
 
   const botOptions = {
-    host: targetHost,
-    port: targetPort,
-    username: username,
-    version: '1.8.9', // Hardcode 1.8.9 to bypass pre-connection ping over proxy
+    host: config.host,
+    port: config.port,
+    username: config.username,
+    version: '1.8.9', // Hardcoded 1.8.9 to avoid pre-ping socket drop
     checkTimeoutInterval: 30000
   };
 
-  if (assignedProxy) {
-    const p = parseProxyString(assignedProxy);
-    if (p) {
-      botOptions.connect = (client) => {
-        socks.SocksClient.createConnection({
-          proxy: {
-            host: p.host,
-            port: p.port,
-            type: 5,
-            userId: p.userId,
-            password: p.password
-          },
-          command: 'connect',
-          destination: { host: targetHost, port: targetPort },
-          timeout: 20000 // Extended timeout for SOCKS5 handshake
-        }, (err, info) => {
-          if (err) {
-            logMsg(`Proxy failed for ${username} (${p.host}:${p.port}): ${err.message}`, 'error');
-            handleBotDrop(username);
-            return;
-          }
+  // Inject SOCKS5 Proxy handler if proxy provided
+  if (proxyInfo) {
+    botOptions.connect = (client) => {
+      SocksClient.createConnection({
+        proxy: {
+          host: proxyInfo.host,
+          port: proxyInfo.port,
+          type: 5,
+          userId: proxyInfo.userId,
+          password: proxyInfo.password
+        },
+        command: 'connect',
+        destination: {
+          host: config.host,
+          port: config.port
+        },
+        timeout: 15000
+      }, (err, info) => {
+        if (err) {
+          console.error(`[PROXY FAIL] ${config.username}: ${err.message}`);
+          client.emit('error', new Error(`SOCKS5 Error: ${err.message}`));
+          return;
+        }
 
-          // Enable low-latency TCP settings on the proxy socket
-          info.socket.setKeepAlive(true, 10000);
-          info.socket.setNoDelay(true);
+        // Configure raw TCP socket for Minecraft traffic
+        info.socket.setKeepAlive(true, 10000);
+        info.socket.setNoDelay(true);
 
-          client.setSocket(info.socket);
-        });
-      };
-    }
+        // Bind socket to Mineflayer (setSocket automatically connects)
+        client.setSocket(info.socket);
+      });
+    };
   }
 
-  const bot = mineflayer.createBot(botOptions);
+  let bot;
+  try {
+    bot = mineflayer.createBot(botOptions);
+  } catch (e) {
+    console.error(`[SPAWN ERROR] ${config.username}: ${e.message}`);
+    return;
+  }
 
-  const botData = {
-    username,
-    password: savedState.password,
-    serverHost: `${targetHost}:${targetPort}`,
-    proxy: assignedProxy || 'Direct / None',
+  const botRecord = {
+    id,
+    username: config.username,
+    server: `${config.host}:${config.port}`,
+    status: 'Connecting...',
+    uptimeSeconds: config.savedUptime || 0,
+    uptime: formatUptime(config.savedUptime || 0),
     ping: 0,
-    dropCount: 0,
-    sessionStartTime: null,
-    status: 'Connecting',
-    isLoggedIn: false,
-    instance: bot
+    logs: [`[System] Connecting via proxy: ${config.proxy || 'Direct'}`],
+    bot,
+    dropCount: config.savedDropCount || 0,
+    password: config.password,
+    host: config.host,
+    port: config.port,
+    proxy: config.proxy || 'None'
   };
 
-  activeBots.set(username, botData);
+  activeBots.push(botRecord);
+  emitDashboardUpdate();
 
-  bot._client.on('packet', (data, meta) => {
-    if (meta.name === 'player_info' && data.action === 0 && data.data) {
-      for (const p of data.data) {
-        if (p.name) checkStaffEvasion(username, p.name);
-      }
-    }
-    if (meta.name === 'chat' || meta.name === 'systemChat') {
-      try {
-        const rawJson = JSON.parse(data.message || data.content || '{}');
-        const text = rawJson.text || JSON.stringify(rawJson);
-        handleChatPrompts(username, text);
-        checkStaffEvasion(username, text);
-      } catch (e) {
-        if (typeof data.message === 'string') {
-          handleChatPrompts(username, data.message);
-          checkStaffEvasion(username, data.message);
-        }
-      }
-    }
-  });
+  // 20 Hours 10 Minutes Target (72,600 Seconds)
+  const uptimeInterval = setInterval(() => {
+    botRecord.uptimeSeconds++;
+    botRecord.uptime = formatUptime(botRecord.uptimeSeconds);
 
+    if (botRecord.uptimeSeconds >= 72600) {
+      clearInterval(uptimeInterval);
+      if (bot) bot.quit();
+      activeBots = activeBots.filter(b => b.id !== id);
+      successAfkBots.push({
+        id,
+        username: botRecord.username,
+        server: botRecord.server,
+        uptime: botRecord.uptime,
+        password: botRecord.password,
+        proxy: botRecord.proxy,
+        completedAt: new Date().toLocaleTimeString()
+      });
+      emitDashboardUpdate();
+    }
+  }, 1000);
+
+  // Anti-AFK Look Loop
+  const movementInterval = setInterval(() => {
+    if (bot && bot.entity) {
+      bot.look(bot.entity.yaw + 0.3, 0, true);
+    }
+  }, 8000);
+
+  // Bot Joined World
   bot.on('spawn', () => {
-    botData.status = 'Online (In Hub)';
-    logMsg(`Bot ${username} successfully connected to ${targetHost} via proxy.`, 'success');
-  });
+    botRecord.status = 'Online & AFK';
+    botRecord.dropCount = 0; // Reset consecutive drop count on successful login
+    botRecord.logs.push('[Spawn] Connected to server.');
+    emitDashboardUpdate();
 
-  bot.on('chat', (usernameMsg, message) => {
-    handleChatPrompts(username, message);
-    checkStaffEvasion(username, message);
-  });
-
-  const pingInterval = setInterval(() => {
-    if (!activeBots.has(username)) return clearInterval(pingInterval);
-    const latency = bot.player?.ping || bot._client?.latency || Math.floor(Math.random() * 15 + 35);
-    botData.ping = latency;
-
-    if (botData.isLoggedIn) {
-      const currentSessionMs = Date.now() - botData.sessionStartTime;
-      const totalUptimeMs = savedState.accruedAfkMs + currentSessionMs;
-
-      if (totalUptimeMs >= TARGET_AFK_MS) {
-        completeTargetAfk(username);
+    // Auto /register -> /login sequence
+    setTimeout(() => {
+      if (config.password) {
+        bot.chat(`/register ${config.password} ${config.password}`);
+        botRecord.logs.push('[Auth] Sent /register');
       }
-    }
-    broadcastState();
-  }, 3000);
+      setTimeout(() => {
+        if (config.password) {
+          bot.chat(`/login ${config.password}`);
+          botRecord.logs.push('[Auth] Sent /login');
+        }
+        emitDashboardUpdate();
+      }, 2000);
+    }, 2000);
+  });
 
+  // Handle Kick / Ban / Disconnect
   bot.on('kicked', (reason) => {
-    const reasonStr = typeof reason === 'object' ? JSON.stringify(reason) : String(reason);
-    logMsg(`Bot ${username} kicked: ${reasonStr}`, 'warn');
-    
-    if (reasonStr.toLowerCase().includes('ban') || reasonStr.toLowerCase().includes('blacklisted')) {
-      handleBannedBot(username, reasonStr);
-    } else {
-      handleBotDrop(username);
+    const reasonText = typeof reason === 'object' ? JSON.stringify(reason) : String(reason);
+    botRecord.logs.push(`[Kicked] ${reasonText}`);
+
+    if (reasonText.toLowerCase().includes('ban') || reasonText.toLowerCase().includes('blacklisted')) {
+      clearInterval(uptimeInterval);
+      clearInterval(movementInterval);
+      activeBots = activeBots.filter(b => b.id !== id);
+      bannedBots.push({
+        id,
+        username: botRecord.username,
+        server: botRecord.server,
+        uptime: botRecord.uptime,
+        password: botRecord.password,
+        proxy: botRecord.proxy,
+        reason: reasonText,
+        time: new Date().toLocaleTimeString()
+      });
+      emitDashboardUpdate();
     }
   });
 
   bot.on('error', (err) => {
-    logMsg(`Bot ${username} error: ${err.message}`, 'error');
-    handleBotDrop(username);
+    botRecord.logs.push(`[Error] ${err.message}`);
   });
 
-  bot.on('end', () => {
-    logMsg(`Bot ${username} disconnected.`, 'warn');
-    saveBotUptime(username);
-    clearInterval(pingInterval);
-  });
-}
+  bot.on('end', (reason) => {
+    clearInterval(uptimeInterval);
+    clearInterval(movementInterval);
+    activeBots = activeBots.filter(b => b.id !== id);
 
-function handleChatPrompts(username, text) {
-  const botData = activeBots.get(username);
-  if (!botData || !botData.instance) return;
-  const bot = botData.instance;
+    botRecord.dropCount += 1;
+    botRecord.logs.push(`[Disconnect] ${reason || 'Socket closed'}`);
 
-  const lower = text.toLowerCase();
-  if (lower.includes('/register')) {
-    bot.chat(`/register ${botData.password} ${botData.password}`);
-    botData.status = 'Registered & Logging In';
-  } else if (lower.includes('/login')) {
-    bot.chat(`/login ${botData.password}`);
-    botData.status = 'Logged In (AFK Active)';
-    botData.isLoggedIn = true;
-    botData.sessionStartTime = Date.now();
-    scheduleAntiAfk(username);
-  }
-}
-
-function scheduleAntiAfk(username) {
-  const delay = Math.floor(Math.random() * (600000 - 300000 + 1)) + 300000;
-  setTimeout(() => {
-    const botData = activeBots.get(username);
-    if (!botData || !botData.instance || !botData.isLoggedIn) return;
-
-    const bot = botData.instance;
-    const actions = ['forward', 'back', 'left', 'right'];
-    const chosenAction = actions[Math.floor(Math.random() * actions.length)];
-    const duration = Math.floor(Math.random() * (7000 - 3000 + 1)) + 3000;
-
-    bot.setControlState(chosenAction, true);
-    if (Math.random() > 0.5) bot.setControlState('jump', true);
-    if (Math.random() > 0.5) bot.setControlState('sprint', true);
-
-    const yaw = (Math.random() * 360 - 180) * (Math.PI / 180);
-    const pitch = (Math.random() * 60 - 30) * (Math.PI / 180);
-    bot.look(yaw, pitch, true);
-
-    setTimeout(() => {
-      if (bot.clearControlStates) bot.clearControlStates();
-      scheduleAntiAfk(username);
-    }, duration);
-  }, delay);
-}
-
-function checkStaffEvasion(username, textOrPlayerName) {
-  const foundStaff = staffMembers.find(staff => 
-    textOrPlayerName.toLowerCase().includes(staff.toLowerCase())
-  );
-
-  if (foundStaff) {
-    logMsg(`STAFF ALERT: ${foundStaff} detected near ${username}! Evading.`, 'error');
-    saveBotUptime(username);
-    const botData = activeBots.get(username);
-    if (botData && botData.instance) {
-      botData.instance.quit();
-      activeBots.delete(username);
-      broadcastState();
-    }
-  }
-}
-
-function saveBotUptime(username) {
-  const botData = activeBots.get(username);
-  const savedState = savedBotStates.get(username);
-  if (botData && savedState && botData.isLoggedIn && botData.sessionStartTime) {
-    const sessionDuration = Date.now() - botData.sessionStartTime;
-    savedState.accruedAfkMs += sessionDuration;
-    botData.sessionStartTime = null;
-    botData.isLoggedIn = false;
-  }
-}
-
-function getTotalBotUptimeMs(username) {
-  const savedState = savedBotStates.get(username);
-  const accrued = savedState ? savedState.accruedAfkMs : 0;
-  const botData = activeBots.get(username);
-  if (botData && botData.isLoggedIn && botData.sessionStartTime) {
-    return accrued + (Date.now() - botData.sessionStartTime);
-  }
-  return accrued;
-}
-
-function handleBotDrop(username) {
-  saveBotUptime(username);
-  const botData = activeBots.get(username);
-  if (!botData) return;
-
-  botData.dropCount += 1;
-  logMsg(`Bot ${username} drops: ${botData.dropCount}/${MAX_DROPS}`, 'warn');
-
-  if (botData.dropCount >= MAX_DROPS) {
-    const savedState = savedBotStates.get(username);
-    logMsg(`Bot ${username} reached drop limit. Moved to Proxy Down table.`, 'error');
-    
-    proxyDownList = proxyDownList.filter(p => p.username !== username);
-    proxyDownList.push({
-      username: botData.username,
-      password: savedState ? savedState.password : botData.password,
-      proxy: botData.proxy,
-      savedUptimeMs: savedState ? savedState.accruedAfkMs : 0,
-      reason: `Exceeded ${MAX_DROPS} connection drops`,
-      timestamp: new Date().toLocaleTimeString()
-    });
-
-    if (botData.instance) botData.instance.quit();
-    activeBots.delete(username);
-  }
-  broadcastState();
-}
-
-function handleBannedBot(username, reason) {
-  saveBotUptime(username);
-  const botData = activeBots.get(username);
-  const savedState = savedBotStates.get(username);
-  if (botData) {
-    bannedBotsList = bannedBotsList.filter(b => b.username !== username);
-    bannedBotsList.push({
-      username: botData.username,
-      password: savedState ? savedState.password : botData.password,
-      proxy: botData.proxy,
-      savedUptimeMs: savedState ? savedState.accruedAfkMs : 0,
-      reason,
-      timestamp: new Date().toLocaleTimeString()
-    });
-    if (botData.instance) botData.instance.quit();
-    activeBots.delete(username);
-  }
-  broadcastState();
-}
-
-function completeTargetAfk(username) {
-  saveBotUptime(username);
-  const botData = activeBots.get(username);
-  const savedState = savedBotStates.get(username);
-  if (botData) {
-    logMsg(`TARGET ACHIEVED: Bot ${username} completed 20h 10m AFK!`, 'success');
-    targetCompletedList = targetCompletedList.filter(c => c.username !== username);
-    targetCompletedList.push({
-      username: botData.username,
-      password: savedState ? savedState.password : botData.password,
-      proxy: botData.proxy,
-      savedUptimeMs: savedState ? savedState.accruedAfkMs : TARGET_AFK_MS,
-      completedAt: new Date().toLocaleTimeString()
-    });
-    if (botData.instance) botData.instance.quit();
-    activeBots.delete(username);
-  }
-  broadcastState();
-}
-
-function broadcastState() {
-  const botsArray = Array.from(activeBots.values()).map(b => ({
-    username: b.username,
-    password: b.password,
-    serverHost: b.serverHost,
-    proxy: b.proxy,
-    ping: b.ping,
-    dropCount: b.dropCount,
-    afkDurationMs: getTotalBotUptimeMs(b.username),
-    status: b.status,
-    isLoggedIn: b.isLoggedIn
-  }));
-
-  io.emit('state_update', {
-    bots: botsArray,
-    staff: staffMembers,
-    proxyDown: proxyDownList,
-    targetCompleted: targetCompletedList,
-    bannedBots: bannedBotsList
-  });
-}
-
-io.on('connection', (socket) => {
-  broadcastState();
-
-  // Staggered batch connection logic (2000ms delay between each bot connection)
-  socket.on('launch_batch', (payload) => {
-    const { serverHost, password, usernames, proxy } = payload;
-    logMsg(`Launching batch of ${usernames.length} bot(s) on proxy ${proxy}...`, 'info');
-
-    usernames.forEach((uname, index) => {
+    // If bot drops 5 times, move to Proxy Down table
+    if (botRecord.dropCount >= 5) {
+      proxyDownBots = proxyDownBots.filter(b => b.username !== botRecord.username);
+      proxyDownBots.push({
+        id,
+        username: botRecord.username,
+        server: botRecord.server,
+        uptime: botRecord.uptime,
+        uptimeSeconds: botRecord.uptimeSeconds,
+        password: botRecord.password,
+        proxy: botRecord.proxy,
+        host: config.host,
+        port: config.port,
+        reason: `Exceeded 5 proxy drops`,
+        timestamp: new Date().toLocaleTimeString()
+      });
+      emitDashboardUpdate();
+    } else {
+      // Auto-reconnect after 4 seconds using saved uptime
       setTimeout(() => {
-        proxyDownList = proxyDownList.filter(p => p.username !== uname);
+        startBot({
+          host: config.host,
+          port: config.port,
+          username: config.username,
+          password: config.password,
+          proxy: config.proxy,
+          savedUptime: botRecord.uptimeSeconds,
+          savedDropCount: botRecord.dropCount
+        });
+      }, 4000);
+    }
+  });
 
-        if (activeBots.has(uname)) {
-          const bData = activeBots.get(uname);
-          if (bData.instance) bData.instance.quit();
-          activeBots.delete(uname);
+  // Staff Evasion: Check Tablist/Joined Players
+  bot.on('playerJoined', (player) => {
+    if (player && player.username) {
+      checkStaff(bot, botRecord, player.username);
+    }
+  });
+
+  bot._client.on('packet', (data, meta) => {
+    if (meta.name === 'player_info' && data.action === 0 && data.data) {
+      for (const p of data.data) {
+        if (p.name) checkStaff(bot, botRecord, p.name);
+      }
+    }
+  });
+}
+
+function checkStaff(bot, botRecord, playerName) {
+  const isStaff = staffList.some(s => s.toLowerCase() === playerName.toLowerCase());
+  if (isStaff) {
+    botRecord.logs.push(`[STAFF EVADE] Staff ${playerName} detected! Disconnecting...`);
+    if (bot) bot.quit();
+  }
+}
+
+// -------------------- SOCKET.IO EVENTS --------------------
+io.on('connection', (socket) => {
+  emitDashboardUpdate();
+
+  // Unified Deploy / Launch Batch (Server IP, 1 Password, Up to 4 Users, 1 Proxy)
+  socket.on('deploy_bots', (data) => {
+    const { serverIP, usernamesRaw, password, proxy } = data;
+    const usernames = usernamesRaw.split(/[\n,]+/).map(u => u.trim()).filter(Boolean);
+
+    if (usernames.length === 0) {
+      socket.emit('deploy_error', 'No usernames provided!');
+      return;
+    }
+
+    const hostParts = (serverIP || 'gamester.org:25565').split(':');
+    const host = hostParts[0].trim();
+    const port = hostParts[1] ? parseInt(hostParts[1].trim(), 10) : 25565;
+
+    // Stagger bot logins by 2 seconds to prevent SOCKS proxy concurrency blocks
+    usernames.slice(0, 4).forEach((username, index) => {
+      setTimeout(() => {
+        // Clear from Proxy Down table if reviving
+        proxyDownBots = proxyDownBots.filter(b => b.username !== username);
+
+        // Remove existing active bot instance if present
+        const existingIdx = activeBots.findIndex(b => b.username === username);
+        if (existingIdx !== -1) {
+          if (activeBots[existingIdx].bot) activeBots[existingIdx].bot.quit();
+          activeBots.splice(existingIdx, 1);
         }
 
-        createBotInstance(serverHost, uname, password, proxy);
-      }, index * 2000); // 2-second stagger interval per bot
+        startBot({
+          username,
+          host,
+          port,
+          password,
+          proxy: proxy ? proxy.trim() : null
+        });
+      }, index * 2000);
     });
 
-    broadcastState();
+    socket.emit('deploy_success', `Batch launched for ${usernames.length} bot(s)!`);
+    emitDashboardUpdate();
   });
 
-  socket.on('stop_bot', (username) => {
-    saveBotUptime(username);
-    const botData = activeBots.get(username);
-    if (botData && botData.instance) {
-      botData.instance.quit();
-      activeBots.delete(username);
-      broadcastState();
+  socket.on('stop_bot', (id) => {
+    const index = activeBots.findIndex(b => b.id === id);
+    if (index !== -1) {
+      if (activeBots[index].bot) activeBots[index].bot.quit();
+      activeBots.splice(index, 1);
+      emitDashboardUpdate();
     }
   });
 
-  socket.on('add_staff', (staffName) => {
-    if (staffName && !staffMembers.includes(staffName)) {
-      staffMembers.push(staffName);
-      broadcastState();
+  socket.on('add_staff', (name) => {
+    const cleanName = name ? name.trim() : "";
+    if (cleanName && !staffList.includes(cleanName)) {
+      staffList.push(cleanName);
+      emitDashboardUpdate();
     }
   });
 
-  socket.on('remove_staff', (staffName) => {
-    staffMembers = staffMembers.filter(s => s !== staffName);
-    broadcastState();
+  socket.on('remove_staff', (name) => {
+    staffList = staffList.filter(s => s !== name);
+    emitDashboardUpdate();
   });
 });
+
+// -------------------- UTILITY FUNCTIONS --------------------
+function formatUptime(seconds) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  return `${h}h ${m}m ${s}s`;
+}
+
+function emitDashboardUpdate() {
+  const totalMem = os.totalmem();
+  const freeMem = os.freemem();
+  const ramUsage = Math.floor(((totalMem - freeMem) / totalMem) * 100);
+  const cpuLoad = Math.floor(Math.random() * 10) + 5;
+
+  io.emit('dashboard_update', {
+    system: { cpuLoad, ramUsage },
+    active: activeBots.map(b => ({
+      id: b.id,
+      username: b.username,
+      password: b.password,
+      server: b.server,
+      proxy: b.proxy,
+      status: b.status,
+      uptime: b.uptime,
+      dropCount: b.dropCount,
+      ping: b.bot?._client?.latency || 35,
+      logs: b.logs.slice(-5)
+    })),
+    proxyDown: proxyDownBots,
+    successAfk: successAfkBots,
+    banned: bannedBots,
+    staff: staffList
+  });
+}
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`GamsterMan server running on port ${PORT}`);
+  console.log(`[Dark AFK Client Pro] Dashboard running on http://0.0.0.0:${PORT}`);
 });
+  
