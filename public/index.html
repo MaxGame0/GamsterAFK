@@ -1,367 +1,281 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dark AFK Client Pro - Dashboard</title>
-  <style>
-    :root {
-      --bg-dark: #0f111a;
-      --bg-card: #181b28;
-      --accent: #7289da;
-      --accent-hover: #5b6eae;
-      --danger: #ed4245;
-      --success: #3ba55d;
-      --warning: #faa81a;
-      --text-main: #f6f6f7;
-      --text-muted: #b9bbbe;
-      --border: #23273a;
-    }
-
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-
-    body {
-      background-color: var(--bg-dark);
-      color: var(--text-main);
-      padding: 20px;
-      line-height: 1.5;
-    }
-
-    header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding-bottom: 20px;
-      border-bottom: 1px solid var(--border);
-      margin-bottom: 25px;
-    }
-
-    h1 { font-size: 1.5rem; color: #fff; }
-    
-    .stats-bar {
-      display: flex;
-      gap: 15px;
-      font-size: 0.9rem;
-      background: var(--bg-card);
-      padding: 8px 16px;
-      border-radius: 6px;
-      border: 1px solid var(--border);
-    }
-
-    .grid {
-      display: grid;
-      grid-template-columns: 320px 1fr;
-      gap: 20px;
-    }
-
-    @media (max-width: 900px) {
-      .grid { grid-template-columns: 1fr; }
-    }
-
-    .card {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 20px;
-      margin-bottom: 20px;
-    }
-
-    .card h2 {
-      font-size: 1.1rem;
-      margin-bottom: 15px;
-      color: var(--accent);
-      border-bottom: 1px solid var(--border);
-      padding-bottom: 8px;
-    }
-
-    .form-group {
-      margin-bottom: 12px;
-    }
-
-    label {
-      display: block;
-      font-size: 0.85rem;
-      color: var(--text-muted);
-      margin-bottom: 4px;
-    }
-
-    input, textarea {
-      width: 100%;
-      background: #0d0e15;
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      padding: 8px 12px;
-      color: #fff;
-      font-size: 0.9rem;
-    }
-
-    input:focus, textarea:focus {
-      outline: none;
-      border-color: var(--accent);
-    }
-
-    button {
-      width: 100%;
-      background: var(--accent);
-      color: #fff;
-      border: none;
-      padding: 10px;
-      border-radius: 4px;
-      font-weight: bold;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-
-    button:hover { background: var(--accent-hover); }
-
-    .bot-card {
-      background: #0d0e15;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 15px;
-      margin-bottom: 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    .bot-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    .bot-title {
-      font-weight: bold;
-      font-size: 1rem;
-    }
-
-    .status-badge {
-      font-size: 0.75rem;
-      padding: 2px 8px;
-      border-radius: 12px;
-      background: var(--warning);
-      color: #000;
-      font-weight: bold;
-    }
-
-    .status-badge.online { background: var(--success); color: #fff; }
-
-    .bot-meta {
-      font-size: 0.82rem;
-      color: var(--text-muted);
-      display: flex;
-      gap: 15px;
-    }
-
-    .logs-box {
-      background: #050608;
-      border-radius: 4px;
-      padding: 8px;
-      font-family: monospace;
-      font-size: 0.78rem;
-      color: #8a8d93;
-      max-height: 80px;
-      overflow-y: auto;
-    }
-
-    .btn-danger {
-      background: var(--danger);
-      width: auto;
-      padding: 4px 10px;
-      font-size: 0.8rem;
-    }
-
-    .btn-danger:hover { background: #c03537; }
-
-    .staff-list {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 10px;
-    }
-
-    .staff-chip {
-      background: #0d0e15;
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 4px 10px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 0.85rem;
-    }
-
-    .staff-chip img {
-      border-radius: 50%;
-    }
-
-    .remove-staff {
-      cursor: pointer;
-      color: var(--danger);
-      margin-left: 4px;
-      font-weight: bold;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sleepy Client | 24/7 Premium AFK</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        :root {
+            --bg: #0a0a0c;
+            --accent: #6b21a8;
+            --accent-glow: #9333ea;
+            --text: #e2e8f0;
+            --glass: rgba(255, 255, 255, 0.03);
+            --border: rgba(255, 255, 255, 0.08);
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', system-ui, sans-serif; }
+        body { background-color: var(--bg); color: var(--text); overflow-x: hidden; smooth-scrolling: true; }
+        
+        /* Typography & Glows */
+        h1, h2, h3 { font-weight: 800; letter-spacing: -1px; }
+        .glow-text { text-shadow: 0 0 20px var(--accent-glow); color: #fff; }
+        .gradient-text { background: linear-gradient(to right, #d8b4fe, #9333ea); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        
+        /* Layouts */
+        #landing, #dashboard { display: none; width: 100vw; min-height: 100vh; }
+        #landing.active, #dashboard.active { display: flex; }
+        
+        /* Landing Page */
+        #landing { flex-direction: column; align-items: center; justify-content: center; position: relative; }
+        .disclaimer { position: absolute; top: 20px; font-size: 11px; opacity: 0.5; text-transform: uppercase; letter-spacing: 2px; }
+        .hero-box { text-align: center; background: var(--glass); padding: 4rem; border-radius: 24px; border: 1px solid var(--border); backdrop-filter: blur(10px); animation: fadeUp 1s cubic-bezier(0.16, 1, 0.3, 1); }
+        .btn { background: var(--accent); color: #fff; border: none; padding: 12px 28px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: 0.3s; box-shadow: 0 0 15px rgba(147, 51, 234, 0.4); margin: 10px; font-size: 14px; }
+        .btn:hover { background: var(--accent-glow); transform: translateY(-2px); box-shadow: 0 0 25px rgba(147, 51, 234, 0.6); }
+        
+        /* Modals */
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); backdrop-filter: blur(5px); z-index: 100; align-items: center; justify-content: center; }
+        .modal.active { display: flex; animation: fadeIn 0.3s; }
+        .modal-content { background: #111116; padding: 2.5rem; border-radius: 16px; border: 1px solid var(--border); width: 400px; max-width: 90%; }
+        input, select { width: 100%; padding: 12px; margin-bottom: 15px; background: rgba(0,0,0,0.5); border: 1px solid var(--border); color: #fff; border-radius: 6px; outline: none; transition: 0.3s; }
+        input:focus { border-color: var(--accent); box-shadow: 0 0 10px rgba(147,51,234,0.2); }
+        
+        /* Dashboard Layout */
+        #dashboard { display: flex; }
+        .sidebar { width: 260px; background: #0c0c0f; border-right: 1px solid var(--border); padding: 2rem; display: flex; flex-direction: column; gap: 10px; }
+        .nav-item { padding: 12px 16px; border-radius: 8px; cursor: pointer; transition: 0.2s; font-weight: 500; opacity: 0.7; }
+        .nav-item:hover, .nav-item.active { background: rgba(147, 51, 234, 0.1); opacity: 1; color: #d8b4fe; }
+        .main-content { flex: 1; padding: 3rem; overflow-y: auto; }
+        
+        /* Dashboard Cards */
+        .view-section { display: none; animation: fadeUp 0.4s; }
+        .view-section.active { display: block; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .stat-card { background: var(--glass); border: 1px solid var(--border); padding: 20px; border-radius: 12px; }
+        .player-head { width: 64px; height: 64px; border-radius: 8px; margin-bottom: 10px; }
+        
+        /* Restrictive Display Classes */
+        .admin-only, .pro-only { display: none; }
+        
+        @keyframes fadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    </style>
 </head>
 <body>
 
-  <header>
-    <h1>Dark AFK Client Pro</h1>
-    <div class="stats-bar">
-      <div>CPU: <strong id="cpu-stat">0%</strong></div>
-      <div>RAM: <strong id="ram-stat">0%</strong></div>
-    </div>
-  </header>
-
-  <div class="grid">
-    <div>
-      <div class="card">
-        <h2>Deploy Bots</h2>
-        <div class="form-group">
-          <label>Server IP</label>
-          <input type="text" id="serverIP" value="gamester.org:25565">
+    <!-- Landing View -->
+    <div id="landing" class="active">
+        <div class="disclaimer">Not Affiliated With Mojang AB</div>
+        <div class="hero-box">
+            <h1 class="glow-text" style="font-size: 4rem; margin-bottom: 10px;">Sleepy Client</h1>
+            <p style="opacity: 0.7; margin-bottom: 30px;">The Professional 24/7 Network Automator</p>
+            <button class="btn" onclick="openModal('loginModal')">Login</button>
+            <button class="btn" style="background: transparent; border: 1px solid var(--border);" onclick="openModal('signupModal')">Sign Up</button>
         </div>
-        <div class="form-group">
-          <label>Usernames (1 per line or comma separated)</label>
-          <textarea id="usernames" rows="4" placeholder="BotName1&#10;BotName2"></textarea>
-        </div>
-        <div class="form-group">
-          <label>In-game Password</label>
-          <input type="password" id="password" placeholder="e.g. MyPassword123">
-        </div>
-        <div class="form-group">
-          <label>SOCKS5 Proxy (host:port:user:pass)</label>
-          <input type="text" id="proxy" placeholder="127.0.0.1:1080">
-        </div>
-        <button id="deploy-btn">Launch Deployment</button>
-      </div>
-
-      <div class="card">
-        <h2>Staff Evasion Watcher</h2>
-        <div class="form-group" style="display:flex; gap: 8px;">
-          <input type="text" id="staff-input" placeholder="Staff Username">
-          <button id="add-staff-btn" style="width: 80px;">Add</button>
-        </div>
-        <div class="staff-list" id="staff-container"></div>
-      </div>
     </div>
 
-    <div>
-      <div class="card">
-        <h2>Active Bots (<span id="active-count">0</span>)</h2>
-        <div id="active-bots-container">
-          <p style="color: var(--text-muted); font-size: 0.9rem;">No active bots deployed.</p>
+    <!-- Auth Modals -->
+    <div class="modal" id="loginModal">
+        <div class="modal-content">
+            <h2 style="margin-bottom: 20px;">Welcome Back</h2>
+            <input type="text" id="loginUser" placeholder="Username (e.g. Admin)">
+            <input type="password" id="loginPass" placeholder="Password">
+            <button class="btn" style="width: 100%; margin: 0;" onclick="login()">Authenticate</button>
+            <div id="authError" style="color: #ef4444; margin-top: 15px; font-size: 13px; white-space: pre-line;"></div>
         </div>
-      </div>
-
-      <div class="card">
-        <h2>Proxy Down / Dropped Bots (<span id="dropped-count">0</span>)</h2>
-        <div id="dropped-bots-container">
-          <p style="color: var(--text-muted); font-size: 0.9rem;">No dropped bots.</p>
-        </div>
-      </div>
     </div>
-  </div>
 
-  <script src="/socket.io/socket.io.js"></script>
-  <script>
-    const socket = io();
-
-    const cpuStat = document.getElementById('cpu-stat');
-    const ramStat = document.getElementById('ram-stat');
-    const activeCount = document.getElementById('active-count');
-    const activeContainer = document.getElementById('active-bots-container');
-    const droppedCount = document.getElementById('dropped-count');
-    const droppedContainer = document.getElementById('dropped-bots-container');
-    const staffContainer = document.getElementById('staff-container');
-
-    document.getElementById('deploy-btn').addEventListener('click', () => {
-      const serverIP = document.getElementById('serverIP').value;
-      const usernamesRaw = document.getElementById('usernames').value;
-      const password = document.getElementById('password').value;
-      const proxy = document.getElementById('proxy').value;
-
-      socket.emit('deploy_bots', { serverIP, usernamesRaw, password, proxy });
-    });
-
-    document.getElementById('add-staff-btn').addEventListener('click', () => {
-      const input = document.getElementById('staff-input');
-      if (input.value.trim()) {
-        socket.emit('add_staff', input.value.trim());
-        input.value = '';
-      }
-    });
-
-    socket.on('dashboard_update', (data) => {
-      cpuStat.textContent = data.system.cpuLoad + '%';
-      ramStat.textContent = data.system.ramUsage + '%';
-
-      // Active Bots
-      activeCount.textContent = data.active.length;
-      if (data.active.length === 0) {
-        activeContainer.innerHTML = '<p style="color: var(--text-muted); font-size: 0.9rem;">No active bots deployed.</p>';
-      } else {
-        activeContainer.innerHTML = data.active.map(bot => `
-          <div class="bot-card">
-            <div class="bot-header">
-              <span class="bot-title">${bot.username}</span>
-              <span class="status-badge ${bot.status.includes('Online') ? 'online' : ''}">${bot.status}</span>
-            </div>
-            <div class="bot-meta">
-              <span>Server: ${bot.server}</span>
-              <span>Uptime: ${bot.uptime}</span>
-              <span>Ping: ${bot.ping}ms</span>
-            </div>
-            <div class="logs-box">
-              ${bot.logs.map(l => `<div>${l}</div>`).join('')}
-            </div>
-            <div style="text-align: right;">
-              <button class="btn-danger" onclick="stopBot('${bot.id}')">Disconnect</button>
-            </div>
-          </div>
-        `).join('');
-      }
-
-      // Dropped Bots
-      droppedCount.textContent = data.proxyDown.length;
-      if (data.proxyDown.length === 0) {
-        droppedContainer.innerHTML = '<p style="color: var(--text-muted); font-size: 0.9rem;">No dropped bots.</p>';
-      } else {
-        droppedContainer.innerHTML = data.proxyDown.map(bot => `
-          <div class="bot-card" style="border-color: var(--danger);">
-            <div class="bot-header">
-              <span class="bot-title">${bot.username}</span>
-              <span class="status-badge" style="background: var(--danger); color: #fff;">Dropped</span>
-            </div>
-            <div class="bot-meta">
-              <span>Reason: ${bot.reason}</span>
-              <span>Time: ${bot.timestamp}</span>
-            </div>
-          </div>
-        `).join('');
-      }
-
-      // Staff List
-      staffContainer.innerHTML = data.staff.map(s => `
-        <div class="staff-chip">
-          <img src="${s.head}" width="16" height="16" alt="${s.name}">
-          <span>${s.name}</span>
-          <span class="remove-staff" onclick="removeStaff('${s.name}')">&times;</span>
+    <div class="modal" id="signupModal">
+        <div class="modal-content">
+            <h2 style="margin-bottom: 20px;">Create Account</h2>
+            <input type="text" id="regUser" placeholder="Minecraft Username">
+            <input type="password" id="regPass" placeholder="Secure Password">
+            <button class="btn" style="width: 100%; margin: 0;" onclick="register()">Request Access</button>
         </div>
-      `).join('');
-    });
+    </div>
 
-    function stopBot(id) {
-      socket.emit('stop_bot', id);
-    }
+    <!-- Dashboard View -->
+    <div id="dashboard">
+        <div class="sidebar">
+            <h2 class="gradient-text" style="margin-bottom: 30px;">Sleepy</h2>
+            <div class="nav-item active" onclick="switchTab('home')">Home</div>
+            <div class="nav-item" onclick="switchTab('console')">Console</div>
+            <div class="nav-item" onclick="switchTab('proxyDown')">Proxy Down</div>
+            <div class="nav-item" onclick="switchTab('successAfk')">Successful AFK</div>
+            <div class="nav-item pro-only admin-only" onclick="switchTab('staff')">Staff Management</div>
+            <div class="nav-item admin-only" onclick="switchTab('usersApp')">Users Application</div>
+            <div class="nav-item" onclick="switchTab('tutorial')">Tutorial</div>
+        </div>
+        
+        <div class="main-content">
+            <!-- Home -->
+            <div id="home" class="view-section active">
+                <div style="display: flex; align-items: center; gap: 20px; margin-bottom: 30px;">
+                    <img id="userHead" class="player-head" src="" alt="Head">
+                    <h1 class="glow-text">Welcome, <span id="homeUser"></span></h1>
+                </div>
+                
+                <div class="stats-grid admin-only" id="sysStats">
+                    <div class="stat-card"><h3>CPU</h3><p id="cpuUsage">0%</p></div>
+                    <div class="stat-card"><h3>RAM</h3><p id="ramUsage">0%</p></div>
+                    <div class="stat-card"><h3>Disk</h3><p id="diskUsage">0%</p></div>
+                </div>
+                
+                <div class="stats-grid">
+                    <div class="stat-card"><h3>Active Bots</h3><p>0</p></div>
+                    <div class="stat-card"><h3>Banned</h3><p>0</p></div>
+                </div>
+                
+                <div class="stat-card" style="margin-top: 20px;">
+                    <h3>Global Bot Command</h3>
+                    <input type="text" id="globalChat" placeholder="e.g. /party join user" style="margin-top:10px;">
+                    <button class="btn" onclick="sendGlobalChat()">Send Command</button>
+                </div>
+            </div>
 
-    function removeStaff(name) {
-      socket.emit('remove_staff', name);
-    }
+            <!-- Console -->
+            <div id="console" class="view-section">
+                <button class="btn glow-text" style="font-size: 24px; padding: 20px 40px; border-radius: 16px;" onclick="openModal('deployModal')">Deploy Bot</button>
+                <div id="consoleLogs" style="margin-top: 30px; background: #000; padding: 20px; border-radius: 8px; font-family: monospace; min-height: 200px; color: #a1a1aa;">
+                    Awaiting deployment...
+                </div>
+            </div>
+            
+            <!-- Proxy Down & Success -->
+            <div id="proxyDown" class="view-section"><h2>Proxy Down</h2><p style="opacity:0.6; margin-top:10px;">Bots needing proxy revival will appear here.</p></div>
+            <div id="successAfk" class="view-section"><h2>Successful AFK</h2><p style="opacity:0.6; margin-top:10px;">Completed timers log here.</p></div>
+            
+            <!-- Staff & Users Admin -->
+            <div id="staff" class="view-section pro-only admin-only">
+                <h2>Staff Disconnect Radar</h2>
+                <input type="text" placeholder="Staff Username (e.g. Henriks9)" style="margin-top: 20px;">
+                <button class="btn">Add Staff</button>
+            </div>
+            <div id="usersApp" class="view-section admin-only"><h2>User Approvals</h2><div id="userList"></div></div>
+            
+            <!-- Tutorial -->
+            <div id="tutorial" class="view-section">
+                <h2>How to use Sleepy Client</h2>
+                <p style="opacity:0.7; margin-top: 15px;">1. Navigate to Console > Deploy Bot.<br>2. Choose Account Type.<br>3. Connect using SOCKS5 proxies to target servers (e.g. gamester.org).</p>
+                <div class="pro-only admin-only" style="margin-top:20px; padding: 15px; border-left: 3px solid var(--accent);">
+                    <h3 class="gradient-text">Pro Features Unlocked</h3>
+                    <p>You have access to Human-like pathfinder rotations and Staff Evasion tactics.</p>
+                </div>
+            </div>
+        </div>
+    </div>
 
-    socket.on('deploy_success', (msg) => alert(msg));
-    socket.on('deploy_error', (msg) => alert(msg));
-  </script>
+    <!-- Deploy Modal -->
+    <div class="modal" id="deployModal">
+        <div class="modal-content">
+            <h2>Deploy Instance</h2>
+            <select id="accType" onchange="toggleAccFields()">
+                <option value="cracked">Cracked Account</option>
+                <option value="cookie">Cookie ALT (Microsoft)</option>
+            </select>
+            <input type="text" id="deployUser" placeholder="Account Username">
+            <input type="text" id="deployIP" placeholder="Server IP (e.g. gamester.org)">
+            <input type="text" id="deployPort" placeholder="Port (Leave blank for 25565)">
+            <input type="password" id="deployPass" placeholder="Server Password (If cracked)">
+            <input type="number" id="deployTimer" placeholder="Timer in Minutes (Blank = Infinite)">
+            
+            <div class="pro-only admin-only" style="margin-bottom: 15px;">
+                <label style="display:flex; align-items:center; gap: 10px; cursor: pointer;">
+                    <input type="checkbox" id="deployMove" style="width: auto; margin:0;"> Enable Anti-AFK Movement
+                </label>
+                <label style="display:flex; align-items:center; gap: 10px; cursor: pointer; margin-top:10px;">
+                    <input type="checkbox" id="deployEvasion" style="width: auto; margin:0;"> Enable Staff Evasion
+                </label>
+            </div>
+            <button class="btn" style="width: 100%; margin:0;" onclick="deployBot()">Initialize Bot</button>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let userRole = 'normal';
+
+        function openModal(id) { document.getElementById(id).classList.add('active'); }
+        function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+        
+        function switchTab(id) {
+            document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        function toggleAccFields() {
+            const type = document.getElementById('accType').value;
+            const input = document.getElementById('deployUser');
+            if (type === 'cookie') {
+                input.placeholder = "Microsoft Email Token Simulation";
+            } else {
+                input.placeholder = "Account Username";
+            }
+        }
+
+        function register() {
+            socket.emit('register', { user: document.getElementById('regUser').value, pass: document.getElementById('regPass').value });
+            alert('Created! Message @_ryxk on Discord in the next 24 hours:\n"Requesting For Approval of My Account @' + document.getElementById('regUser').value + '"');
+            closeModal('signupModal');
+        }
+
+        function login() {
+            socket.emit('login', { username: document.getElementById('loginUser').value, password: document.getElementById('loginPass').value });
+        }
+
+        socket.on('auth_error', msg => { document.getElementById('authError').innerText = msg; });
+        
+        socket.on('login_success', data => {
+            userRole = data.role;
+            document.getElementById('landing').classList.remove('active');
+            document.getElementById('dashboard').classList.add('active');
+            closeModal('loginModal');
+            
+            document.getElementById('homeUser').innerText = data.username;
+            document.getElementById('userHead').src = `https://minotar.net/avatar/${data.username}/64.png`;
+            
+            // Unlock UI elements based on role
+            if (userRole === 'admin' || userRole === 'pro') {
+                document.querySelectorAll('.pro-only').forEach(el => el.style.display = 'block');
+            }
+            if (userRole === 'admin') {
+                document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'flex');
+            }
+        });
+
+        socket.on('sys_stats', stats => {
+            document.getElementById('cpuUsage').innerText = stats.cpu + '%';
+            document.getElementById('ramUsage').innerText = stats.ram + '%';
+            document.getElementById('diskUsage').innerText = stats.disk + '%';
+        });
+
+        function deployBot() {
+            socket.emit('deploy_bot', {
+                accountType: document.getElementById('accType').value,
+                username: document.getElementById('deployUser').value,
+                ip: document.getElementById('deployIP').value,
+                port: document.getElementById('deployPort').value,
+                password: document.getElementById('deployPass').value,
+                timer: document.getElementById('deployTimer').value,
+                movement: document.getElementById('deployMove')?.checked,
+                staffEvasion: document.getElementById('deployEvasion')?.checked
+            });
+            closeModal('deployModal');
+        }
+
+        socket.on('bot_log', data => {
+            const logs = document.getElementById('consoleLogs');
+            logs.innerHTML += `<br>[${new Date().toLocaleTimeString()}] ${data.msg}`;
+        });
+
+        function sendGlobalChat() {
+            const msg = document.getElementById('globalChat').value;
+            socket.emit('global_chat', msg);
+            document.getElementById('globalChat').value = '';
+        }
+    </script>
 </body>
-</html>
+              </html>
+                      
