@@ -22,9 +22,16 @@ app.use(express.json());
 const TARGET_AFK_MS = (20 * 3600 + 10 * 60) * 1000; // 20 hours 10 minutes
 const MAX_DROPS = 5;
 
-let staffMembers = ['Henriks9', 'Admin', 'StaffMember'];
+let staffMembers = [
+  'Henriks9', 'NaysKutzu', 'Maria_Int', 'Crackernut', 'Arfkek', 
+  'WOST_Ali', 'Space_turtle9', 'akyss', 'lupu_xx_x', 'Fredy_9', 
+  '_PixelWarriorYT_', 'Megasus', 'pintux', 'TheAshz', 'Tini_Alina', 
+  'karlthhkiller3', 'OfficialMex', 'mihaaiiii', 'Gamster', 'ItsB2_', 
+  'GamsterEvent', 'LD007', 'snaccks', 'xSpeed10', 'ATHUL'
+];
+
 let activeBots = new Map();
-let savedBotStates = new Map(); // username -> { password, accruedAfkMs }
+let savedBotStates = new Map();
 
 let proxyDownList = [];
 let targetCompletedList = [];
@@ -59,7 +66,7 @@ function createBotInstance(serverHostStr, username, password, assignedProxy) {
     savedState = { password, accruedAfkMs: 0 };
     savedBotStates.set(username, savedState);
   } else if (password) {
-    savedState.password = password; // update password if provided
+    savedState.password = password;
   }
 
   const hostParts = (serverHostStr || 'gamester.org:25565').split(':');
@@ -70,7 +77,8 @@ function createBotInstance(serverHostStr, username, password, assignedProxy) {
     host: targetHost,
     port: targetPort,
     username: username,
-    version: '1.8.9'
+    version: '1.8.9', // Hardcode 1.8.9 to bypass pre-connection ping over proxy
+    checkTimeoutInterval: 30000
   };
 
   if (assignedProxy) {
@@ -87,7 +95,7 @@ function createBotInstance(serverHostStr, username, password, assignedProxy) {
           },
           command: 'connect',
           destination: { host: targetHost, port: targetPort },
-          timeout: 10000
+          timeout: 20000 // Extended timeout for SOCKS5 handshake
         }, (err, info) => {
           if (err) {
             logMsg(`Proxy failed for ${username} (${p.host}:${p.port}): ${err.message}`, 'error');
@@ -95,8 +103,10 @@ function createBotInstance(serverHostStr, username, password, assignedProxy) {
             return;
           }
 
-          // Single handshake connection setup:
-          // DO NOT emit 'connect' here - setSocket emits 'connect' internally.
+          // Enable low-latency TCP settings on the proxy socket
+          info.socket.setKeepAlive(true, 10000);
+          info.socket.setNoDelay(true);
+
           client.setSocket(info.socket);
         });
       };
@@ -143,7 +153,7 @@ function createBotInstance(serverHostStr, username, password, assignedProxy) {
 
   bot.on('spawn', () => {
     botData.status = 'Online (In Hub)';
-    logMsg(`Bot ${username} spawned on ${targetHost}.`, 'success');
+    logMsg(`Bot ${username} successfully connected to ${targetHost} via proxy.`, 'success');
   });
 
   bot.on('chat', (usernameMsg, message) => {
@@ -365,23 +375,23 @@ function broadcastState() {
 io.on('connection', (socket) => {
   broadcastState();
 
-  // Unified Batch launch handler: Server IP + Password + Up to 4 Users + 1 SOCKS5 Proxy
+  // Staggered batch connection logic (2000ms delay between each bot connection)
   socket.on('launch_batch', (payload) => {
     const { serverHost, password, usernames, proxy } = payload;
     logMsg(`Launching batch of ${usernames.length} bot(s) on proxy ${proxy}...`, 'info');
 
-    usernames.forEach(uname => {
-      // Clean up proxy down entry if reviving
-      proxyDownList = proxyDownList.filter(p => p.username !== uname);
+    usernames.forEach((uname, index) => {
+      setTimeout(() => {
+        proxyDownList = proxyDownList.filter(p => p.username !== uname);
 
-      // Disconnect if currently running
-      if (activeBots.has(uname)) {
-        const bData = activeBots.get(uname);
-        if (bData.instance) bData.instance.quit();
-        activeBots.delete(uname);
-      }
+        if (activeBots.has(uname)) {
+          const bData = activeBots.get(uname);
+          if (bData.instance) bData.instance.quit();
+          activeBots.delete(uname);
+        }
 
-      createBotInstance(serverHost, uname, password, proxy);
+        createBotInstance(serverHost, uname, password, proxy);
+      }, index * 2000); // 2-second stagger interval per bot
     });
 
     broadcastState();
@@ -414,4 +424,3 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`GamsterMan server running on port ${PORT}`);
 });
-        
