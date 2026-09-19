@@ -3,340 +3,258 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Minecraft Dark AFK Client</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <title>GamsterMan AFK & Evasion Dashboard</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
-    body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #050505; color: #f3f4f6; overflow-x: hidden; }
-    .glow-text { text-shadow: 0 0 20px rgba(168, 85, 247, 0.6); }
-    .glow-box { box-shadow: 0 0 30px rgba(147, 51, 234, 0.15); border: 1px solid rgba(147, 51, 234, 0.3); }
-    .scroll-section { opacity: 0; transform: translateY(50px); transition: all 1s ease-out; }
-    .scroll-section.visible { opacity: 1; transform: translateY(0); }
+    :root {
+      --bg-dark: #0a0d14;
+      --card-bg: #121824;
+      --accent-cyan: #00f0ff;
+      --accent-green: #00ff88;
+      --accent-red: #ff3366;
+      --accent-yellow: #ffcc00;
+      --text-main: #e2e8f0;
+      --border-color: #1e293b;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    body { background-color: var(--bg-dark); color: var(--text-main); display: flex; height: 100vh; overflow: hidden; }
+
+    /* Sidebar Navigation */
+    .sidebar { width: 280px; background: #07090e; border-right: 1px solid var(--border-color); display: flex; flex-direction: column; padding: 20px; }
+    .logo { font-size: 1.4rem; font-weight: bold; color: var(--accent-cyan); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 25px; }
+
+    .staff-section { margin-top: auto; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; }
+    .staff-title { font-size: 0.85rem; color: var(--accent-cyan); text-transform: uppercase; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+    .staff-list { max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+    .staff-card { display: flex; align-items: center; justify-content: space-between; background: #0d121d; padding: 6px 10px; border-radius: 6px; border: 1px solid #1e293b; }
+    .staff-info { display: flex; align-items: center; gap: 8px; }
+    .staff-avatar { width: 24px; height: 24px; border-radius: 4px; }
+    .remove-staff-btn { background: none; border: none; color: var(--accent-red); cursor: pointer; font-weight: bold; font-size: 1rem; }
+    .remove-staff-btn:hover { color: #ff6688; }
+    .add-staff-form { display: flex; gap: 6px; }
+    .add-staff-form input { flex: 1; background: #07090e; border: 1px solid var(--border-color); color: #fff; padding: 6px; border-radius: 4px; font-size: 0.8rem; }
+    .add-staff-form button { background: var(--accent-cyan); border: none; color: #000; font-weight: bold; padding: 6px 10px; border-radius: 4px; cursor: pointer; }
+
+    /* Main Workspace */
+    .main-content { flex: 1; padding: 25px; overflow-y: auto; display: flex; flex-direction: column; gap: 20px; }
+    .header-bar { display: flex; justify-content: space-between; align-items: center; }
+    .action-btn { background: var(--accent-green); color: #000; border: none; padding: 10px 20px; font-weight: bold; border-radius: 6px; cursor: pointer; }
+
+    /* Analytics Cards */
+    .grid-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; }
+    .card { background: var(--card-bg); border: 1px solid var(--border-color); padding: 18px; border-radius: 8px; }
+    .card-num { font-size: 1.8rem; font-weight: bold; margin-top: 5px; color: var(--accent-cyan); }
+
+    /* Tables */
+    .table-section { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; }
+    .table-title { font-size: 1rem; margin-bottom: 12px; color: var(--accent-cyan); }
+    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.88rem; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid var(--border-color); }
+    th { color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem; }
+
+    .progress-bar-bg { background: #1e293b; width: 100%; height: 8px; border-radius: 4px; overflow: hidden; margin-top: 4px; }
+    .progress-bar-fill { background: var(--accent-green); height: 100%; width: 0%; transition: width 0.3s; }
+
+    /* Console Logs */
+    .console-box { background: #05070a; border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; height: 160px; overflow-y: auto; font-family: monospace; font-size: 0.8rem; }
+    .log-line { margin-bottom: 4px; }
+    .log-info { color: #94a3b8; }
+    .log-success { color: var(--accent-green); }
+    .log-warn { color: var(--accent-yellow); }
+    .log-error { color: var(--accent-red); }
   </style>
 </head>
-<body class="selection:bg-purple-500 selection:text-white">
+<body>
 
-  <!-- LANDING / SCROLL PAGE -->
-  <div id="landing-page" class="relative">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="logo">GamsterMan v2.0</div>
     
-    <!-- Hero Section -->
-    <section class="h-screen flex flex-col items-center justify-center text-center px-4 scroll-section visible">
-      <div class="inline-block px-4 py-1.5 mb-6 rounded-full bg-purple-950/50 border border-purple-500/30 text-purple-300 text-sm font-semibold tracking-wide animate-pulse">
-        🚀 VERSION 2.0 ULTIMATE AFK SUITE
+    <!-- Staff Management Component -->
+    <div class="staff-section">
+      <div class="staff-title">
+        <span>Staff Evasion List</span>
       </div>
-      <h1 class="text-5xl md:text-7xl font-extrabold tracking-tight mb-6 glow-text">
-        Minecraft <span class="text-purple-500">Dark AFK</span> Client
-      </h1>
-      <p class="max-w-2xl text-lg md:text-xl text-gray-400 mb-10 leading-relaxed">
-        Welcome to Minecraft Dark AFK Client. This client lets you AFK your Minecraft account securely while you sleep, featuring automated proxy health checks, anti-staff evasion, and smart lobby movement loops.
-      </p>
-      <button onclick="enterConsole()" class="px-8 py-4 rounded-xl bg-purple-600 hover:bg-purple-500 font-bold text-lg text-white shadow-lg shadow-purple-600/30 transition-all transform hover:scale-105">
-        Enter Dashboard Console ⚡
-      </button>
-    </section>
-
-    <!-- Feature 1: Proxies -->
-    <section class="min-h-[80vh] flex items-center justify-center px-4 py-20 scroll-section">
-      <div class="max-w-4xl grid md:grid-cols-2 gap-10 items-center bg-zinc-900/40 p-8 rounded-3xl glow-box">
-        <div>
-          <span class="text-purple-400 font-bold tracking-wider text-sm uppercase">Smart Proxy Protection</span>
-          <h2 class="text-3xl font-extrabold mt-2 mb-4">1 Proxy = 4 Bots Limit Enforcement</h2>
-          <p class="text-gray-400 leading-relaxed">
-            Protect your accounts with SOCKS5 & residential proxy rotation. Our engine strictly enforces the 1-proxy-to-4-bots ratio and automatically verifies proxy health after 25 disconnect drops so your accounts stay safe.
-          </p>
-        </div>
-        <div class="bg-black/60 p-6 rounded-2xl border border-zinc-800 font-mono text-sm text-purple-400">
-          <p>> Checking proxy pool...</p>
-          <p>> Ratio check: 4 Bots / 1 Proxy [OK]</p>
-          <p>> 25 Drop threshold monitor active.</p>
-          <p class="text-green-400">> Status: Secure & Encrypted.</p>
-        </div>
+      <div class="staff-list" id="staffList"></div>
+      <div class="add-staff-form">
+        <input type="text" id="newStaffInput" placeholder="Staff Username...">
+        <button onclick="addStaff()">Add</button>
       </div>
-    </section>
-
-    <!-- Feature 2: Staff Evasion -->
-    <section class="min-h-[80vh] flex items-center justify-center px-4 py-20 scroll-section">
-      <div class="max-w-4xl grid md:grid-cols-2 gap-10 items-center bg-zinc-900/40 p-8 rounded-3xl glow-box">
-        <div class="bg-black/60 p-6 rounded-2xl border border-zinc-800 font-mono text-sm text-red-400 order-2 md:order-1">
-          <p>> [SECURITY] Staff member detected!</p>
-          <p>> Username: admin_staff</p>
-          <p>> Action: Instant Safe Disconnect.</p>
-          <p class="text-yellow-400">> Reconnecting in exactly 15 seconds...</p>
-        </div>
-        <div class="order-1 md:order-2">
-          <span class="text-purple-400 font-bold tracking-wider text-sm uppercase">Anti-Staff Radar</span>
-          <h2 class="text-3xl font-extrabold mt-2 mb-4">Automatic Staff Evasion</h2>
-          <p class="text-gray-400 leading-relaxed">
-            The client scans online players and chat logs in real-time. If a staff member appears, your bot instantly logs out and reconnects safely after 15 seconds to avoid detection.
-          </p>
-        </div>
-      </div>
-    </section>
-
-    <!-- Feature 3: Anti-AFK Lobby Movement -->
-    <section class="min-h-[80vh] flex items-center justify-center px-4 py-20 scroll-section">
-      <div class="max-w-4xl grid md:grid-cols-2 gap-10 items-center bg-zinc-900/40 p-8 rounded-3xl glow-box">
-        <div>
-          <span class="text-purple-400 font-bold tracking-wider text-sm uppercase">Human Simulation</span>
-          <h2 class="text-3xl font-extrabold mt-2 mb-4">Smart Lobby Walking Loop</h2>
-          <p class="text-gray-400 leading-relaxed">
-            After automated AuthMe login, your bot walks around the lobby randomly for 30 seconds to 1 minute, pauses for 5 to 10 minutes, and repeats—bypassing advanced server anti-AFK kick plugins effortlessly.
-          </p>
-        </div>
-        <div class="bg-black/60 p-6 rounded-2xl border border-zinc-800 font-mono text-sm text-cyan-400">
-          <p>> Login completed.</p>
-          <p>> Walking in lobby for 45s...</p>
-          <p>> Resting for 7m 30s...</p>
-          <p class="text-green-400">> Uptime tracking: Active (Paused during disconnects).</p>
-        </div>
-      </div>
-    </section>
-
-    <!-- Footer -->
-    <footer class="py-10 text-center text-gray-600 border-t border-zinc-900">
-      <p>Copyright 2026 By Ryuk. All Rights Reserved.</p>
-    </footer>
+    </div>
   </div>
 
-  <!-- DASHBOARD CONSOLE (Hidden Initially) -->
-  <div id="dashboard-console" class="hidden min-h-screen p-4 md:p-8 max-w-7xl mx-auto">
-    <header class="flex justify-between items-center mb-8 pb-4 border-b border-zinc-800">
-      <div>
-        <h1 class="text-2xl font-extrabold glow-text">⚡ Dark AFK Console</h1>
-        <p class="text-sm text-gray-400">Real-time Bot Management & Proxy Recovery Center</p>
-      </div>
-      <button onclick="exitConsole()" class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm font-bold">← Back to Home</button>
-    </header>
+  <!-- Main Content -->
+  <div class="main-content">
+    <div class="header-bar">
+      <h2>Manager Overview</h2>
+      <button class="action-btn" onclick="startBotsPrompt()">+ Launch Bots</button>
+    </div>
 
-    <!-- Controls / Deploy Grid -->
-    <div class="grid lg:grid-cols-3 gap-6 mb-8">
-      <!-- Deploy Form -->
-      <div class="bg-zinc-900/60 p-6 rounded-2xl glow-box lg:col-span-2">
-        <h2 class="text-lg font-bold mb-4 text-purple-400">🚀 Deploy New Bots</h2>
-        <form id="deploy-form" class="space-y-4">
-          <div class="grid md:grid-cols-2 gap-4">
-            <div>
-              <label class="block text-xs text-gray-400 mb-1">Server IP:Port</label>
-              <input type="text" id="serverIP" required placeholder="as.gamster.org:25565" class="w-full bg-black border border-zinc-800 rounded-lg p-3 text-sm focus:border-purple-500 outline-none">
-            </div>
-            <div>
-              <label class="block text-xs text-gray-400 mb-1">AuthMe Password (Optional)</label>
-              <input type="password" id="password" placeholder="Password for login" class="w-full bg-black border border-zinc-800 rounded-lg p-3 text-sm focus:border-purple-500 outline-none">
-            </div>
-          </div>
-          <div>
-            <label class="block text-xs text-gray-400 mb-1">Usernames (Comma Separated)</label>
-            <textarea id="usernamesRaw" required rows="2" placeholder="Bot1, Bot2, Bot3, Bot4" class="w-full bg-black border border-zinc-800 rounded-lg p-3 text-sm focus:border-purple-500 outline-none"></textarea>
-          </div>
-          <div>
-            <label class="block text-xs text-gray-400 mb-1">Proxies (Comma Separated - 1 Proxy supports max 4 bots)</label>
-            <textarea id="proxiesRaw" rows="2" placeholder="ip:port@user:pass, ip:port" class="w-full bg-black border border-zinc-800 rounded-lg p-3 text-sm focus:border-purple-500 outline-none"></textarea>
-          </div>
-          <button type="submit" class="w-full py-3 bg-purple-600 hover:bg-purple-500 font-bold rounded-lg transition-all shadow-lg shadow-purple-600/20">Deploy Bots Now</button>
-        </form>
-        <div id="deploy-msg" class="mt-3 text-sm font-semibold"></div>
+    <!-- Metrics -->
+    <div class="grid-cards">
+      <div class="card">
+        <div>Active Bots</div>
+        <div class="card-num" id="statActive">0</div>
       </div>
-
-      <!-- Staff Manager -->
-      <div class="bg-zinc-900/60 p-6 rounded-2xl glow-box flex flex-col justify-between">
-        <div>
-          <h2 class="text-lg font-bold mb-4 text-purple-400">🛡️ Staff Evasion Manager</h2>
-          <p class="text-xs text-gray-400 mb-4">Add custom staff usernames. Bots instantly disconnect and reconnect in 15s if staff appears.</p>
-          <div class="flex gap-2 mb-4">
-            <input type="text" id="staffInput" placeholder="Staff username" class="w-full bg-black border border-zinc-800 rounded-lg p-3 text-sm focus:border-purple-500 outline-none">
-            <button onclick="addStaff()" class="px-4 bg-zinc-800 hover:bg-zinc-700 font-bold rounded-lg text-sm">Add</button>
-          </div>
-        </div>
-        <div class="bg-black/40 p-4 rounded-xl border border-zinc-800 text-xs text-gray-400">
-          <p class="font-bold text-purple-300 mb-1">Active Protection Status:</p>
-          <p>Total Tracked Staff: <span id="staff-count" class="text-white font-bold">0</span></p>
-          <p>Evasion Delay: <span class="text-green-400 font-bold">15 Seconds</span></p>
-        </div>
+      <div class="card">
+        <div>Target Reached (20h 10m)</div>
+        <div class="card-num" id="statCompleted" style="color: var(--accent-green);">0</div>
+      </div>
+      <div class="card">
+        <div>Proxy Down</div>
+        <div class="card-num" id="statProxyDown" style="color: var(--accent-yellow);">0</div>
+      </div>
+      <div class="card">
+        <div>Banned Bots</div>
+        <div class="card-num" id="statBanned" style="color: var(--accent-red);">0</div>
       </div>
     </div>
 
-    <!-- TABBED SECTIONS (3 Cool Professional Options) -->
-    <div class="flex gap-4 mb-6 border-b border-zinc-800 pb-4">
-      <button onclick="switchTab('active')" id="btn-active" class="px-6 py-2 rounded-xl font-bold bg-purple-600 text-white transition-all">🟢 Successfully AFK Active (<span id="count-active">0</span>)</button>
-      <button onclick="switchTab('proxydown')" id="btn-proxydown" class="px-6 py-2 rounded-xl font-bold bg-zinc-900 text-zinc-400 hover:text-white transition-all">⚠️ Proxy Down Section (<span id="count-proxydown">0</span>)</button>
-      <button onclick="switchTab('banned')" id="btn-banned" class="px-6 py-2 rounded-xl font-bold bg-zinc-900 text-zinc-400 hover:text-white transition-all">🚫 Banned Bots (<span id="count-banned">0</span>)</button>
+    <!-- Active Bots Table -->
+    <div class="table-section">
+      <div class="table-title">Active Bots</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Bot Name</th>
+            <th>Proxy</th>
+            <th>Ping</th>
+            <th>Drops</th>
+            <th>20h 10m Progress</th>
+            <th>Status</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="activeBotsTable"></tbody>
+      </table>
     </div>
 
-    <!-- TAB 1: ACTIVE BOTS -->
-    <div id="tab-active" class="tab-content grid md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
-
-    <!-- TAB 2: PROXY DOWN SECTION (With Recovery Option) -->
-    <div id="tab-proxydown" class="tab-content hidden space-y-6">
-      <div class="bg-zinc-900/60 p-6 rounded-2xl glow-box flex flex-col md:flex-row gap-4 items-center justify-between">
-        <div>
-          <h3 class="font-bold text-lg text-yellow-400">Proxy Recovery Tool</h3>
-          <p class="text-xs text-gray-400">Select up to 4 disconnected bots below, enter a new working proxy, and revive them instantly with their original uptime and credentials!</p>
-        </div>
-        <div class="flex gap-2 w-full md:w-auto">
-          <input type="text" id="recoveryProxyInput" placeholder="New Proxy (ip:port@user:pass)" class="bg-black border border-zinc-800 rounded-lg p-3 text-sm focus:border-purple-500 outline-none w-full md:w-80">
-          <button onclick="recoverSelectedBots()" class="px-6 py-3 bg-yellow-600 hover:bg-yellow-500 text-black font-extrabold rounded-lg text-sm whitespace-nowrap">Revive Selected (Max 4)</button>
-        </div>
-      </div>
-      <div id="proxydown-grid" class="grid md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+    <!-- Proxy Down Table -->
+    <div class="table-section">
+      <div class="table-title" style="color: var(--accent-yellow);">Proxy Down Table (Exceeded 5 Drops)</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Bot Name</th>
+            <th>Failed Proxy</th>
+            <th>Reason</th>
+            <th>Time</th>
+          </tr>
+        </thead>
+        <tbody id="proxyDownTable"></tbody>
+      </table>
     </div>
 
-    <!-- TAB 3: BANNED BOTS -->
-    <div id="tab-banned" class="tab-content hidden grid md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
-
+    <!-- Console Box -->
+    <div class="console-box" id="consoleBox"></div>
   </div>
 
   <script>
     const socket = io();
+    const TARGET_MS = (20 * 3600 + 10 * 60) * 1000;
 
-    // Scroll Animation Observer
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach(entry => { if (entry.isIntersecting) entry.target.classList.add('visible'); });
-    }, { threshold: 0.1 });
-    document.querySelectorAll('.scroll-section').forEach(section => observer.observe(section));
+    socket.on('state_update', (data) => {
+      document.getElementById('statActive').innerText = data.bots.length;
+      document.getElementById('statCompleted').innerText = data.targetCompleted.length;
+      document.getElementById('statProxyDown').innerText = data.proxyDown.length;
+      document.getElementById('statBanned').innerText = data.bannedBots.length;
 
-    function enterConsole() {
-      document.getElementById('landing-page').classList.add('hidden');
-      document.getElementById('dashboard-console').classList.remove('hidden');
-    }
-
-    function exitConsole() {
-      document.getElementById('dashboard-console').classList.add('hidden');
-      document.getElementById('landing-page').classList.remove('hidden');
-    }
-
-    function switchTab(tab) {
-      document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
-      document.querySelectorAll('[id^="btn-"]').forEach(el => { el.className = 'px-6 py-2 rounded-xl font-bold bg-zinc-900 text-zinc-400 hover:text-white transition-all'; });
-      
-      document.getElementById(`tab-${tab}`).classList.remove('hidden');
-      document.getElementById(`btn-${tab}`).className = 'px-6 py-2 rounded-xl font-bold bg-purple-600 text-white transition-all';
-    }
-
-    // Deploy Form Handler
-    document.getElementById('deploy-form').addEventListener('submit', (e) => {
-      e.preventDefault();
-      const serverIP = document.getElementById('serverIP').value;
-      const password = document.getElementById('password').value;
-      const usernamesRaw = document.getElementById('usernamesRaw').value;
-      const proxiesRaw = document.getElementById('proxiesRaw').value;
-
-      socket.emit('deploy_bots', { serverIP, usernamesRaw, password, proxiesRaw });
+      renderStaffList(data.staff);
+      renderActiveBots(data.bots);
+      renderProxyDown(data.proxyDown);
     });
 
-    socket.on('deploy_success', (msg) => {
-      const msgEl = document.getElementById('deploy-msg');
-      msgEl.className = 'mt-3 text-sm font-semibold text-green-400';
-      msgEl.innerText = msg;
-      setTimeout(() => msgEl.innerText = '', 5000);
+    socket.on('log', (log) => {
+      const box = document.getElementById('consoleBox');
+      const div = document.createElement('div');
+      div.className = `log-line log-${log.type}`;
+      div.innerText = `[${log.timestamp}] ${log.msg}`;
+      box.appendChild(div);
+      box.scrollTop = box.scrollHeight;
     });
 
-    socket.on('deploy_error', (err) => {
-      const msgEl = document.getElementById('deploy-msg');
-      msgEl.className = 'mt-3 text-sm font-semibold text-red-400';
-      msgEl.innerText = err;
-    });
+    function renderStaffList(staff) {
+      const container = document.getElementById('staffList');
+      container.innerHTML = staff.map(s => `
+        <div class="staff-card">
+          <div class="staff-info">
+            <img class="staff-avatar" src="https://mc-heads.net/avatar/${s}/64" alt="${s}">
+            <span>${s}</span>
+          </div>
+          <button class="remove-staff-btn" onclick="removeStaff('${s}')">×</button>
+        </div>
+      `).join('');
+    }
+
+    function renderActiveBots(bots) {
+      const container = document.getElementById('activeBotsTable');
+      container.innerHTML = bots.map(b => {
+        const pct = Math.min(100, ((b.afkDurationMs / TARGET_MS) * 100)).toFixed(1);
+        return `
+          <tr>
+            <td><b>${b.username}</b></td>
+            <td>${b.proxy}</td>
+            <td>${b.ping} ms</td>
+            <td>${b.dropCount} / 5</td>
+            <td style="width: 180px;">
+              <div>${pct}% (${formatMs(b.afkDurationMs)})</div>
+              <div class="progress-bar-bg">
+                <div class="progress-bar-fill" style="width: ${pct}%;"></div>
+              </div>
+            </td>
+            <td><span style="color: var(--accent-green);">${b.status}</span></td>
+            <td><button onclick="stopBot('${b.username}')" style="background: var(--accent-red); color:#fff; border:none; padding:4px 8px; border-radius:4px; cursor:pointer;">Stop</button></td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function renderProxyDown(list) {
+      const container = document.getElementById('proxyDownTable');
+      container.innerHTML = list.map(item => `
+        <tr>
+          <td>${item.username}</td>
+          <td>${item.proxy}</td>
+          <td>${item.reason}</td>
+          <td>${item.timestamp}</td>
+        </tr>
+      `).join('');
+    }
 
     function addStaff() {
-      const val = document.getElementById('staffInput').value;
-      if (val) {
-        socket.emit('add_staff', val);
-        document.getElementById('staffInput').value = '';
+      const input = document.getElementById('newStaffInput');
+      if (input.value.trim()) {
+        socket.emit('add_staff', input.value.trim());
+        input.value = '';
       }
     }
 
-    function stopBot(id) {
-      socket.emit('stop_bot', id);
+    function removeStaff(name) {
+      socket.emit('remove_staff', name);
     }
 
-    // Realtime Dashboard Data Renderer
-    socket.on('dashboard_update', (data) => {
-      document.getElementById('count-active').innerText = data.active.length;
-      document.getElementById('count-proxydown').innerText = data.proxyDown.length;
-      document.getElementById('count-banned').innerText = data.banned.length;
-      document.getElementById('staff-count').innerText = data.staffCount;
+    function stopBot(username) {
+      socket.emit('stop_bot', username);
+    }
 
-      // Render Active Bots
-      const activeContainer = document.getElementById('tab-active');
-      if (data.active.length === 0) {
-        activeContainer.innerHTML = `<div class="col-span-full text-center py-12 text-zinc-600 font-semibold">No active bots running right now. Deploy some above!</div>`;
-      } else {
-        activeContainer.innerHTML = data.active.map(b => `
-          <div class="bg-zinc-900/60 border border-zinc-800 p-5 rounded-2xl glow-box flex flex-col justify-between">
-            <div>
-              <div class="flex justify-between items-start mb-3">
-                <h3 class="font-extrabold text-lg text-purple-300">🤖 ${b.username}</h3>
-                <span class="px-2 py-0.5 rounded text-xs font-bold bg-green-950 text-green-400 border border-green-800">ONLINE</span>
-              </div>
-              <p class="text-xs text-gray-400 mb-1">Server: <span class="text-white">${b.server}</span></p>
-              <p class="text-xs text-gray-400 mb-1">Status: <span class="text-purple-400">${b.status}</span></p>
-              <p class="text-xs text-gray-400 mb-1">Uptime: <span class="text-cyan-400 font-bold">${b.uptime}</span></p>
-              <p class="text-xs text-gray-400 mb-1">Health / Ping: ❤️ ${b.health} | 🏓 ${b.ping}</p>
-              <p class="text-xs text-gray-400 mb-3">Pos: ${b.pos}</p>
-              <div class="bg-black/60 p-3 rounded-xl font-mono text-[11px] text-gray-300 mb-4 h-20 overflow-y-auto">
-                ${b.logs.join('<br>')}
-              </div>
-            </div>
-            <button onclick="stopBot('${b.id}')" class="w-full py-2 bg-red-950/60 hover:bg-red-900 text-red-300 border border-red-800 rounded-lg text-xs font-bold transition-all">Stop Bot</button>
-          </div>
-        `).join('');
+    function startBotsPrompt() {
+      const input = prompt('Enter bots in format "username:password", separated by commas:');
+      if (input) {
+        const botList = input.split(',').map(item => {
+          const [username, password] = item.trim().split(':');
+          return { username, password };
+        });
+        socket.emit('start_bots', botList);
       }
+    }
 
-      // Render Proxy Down Bots
-      const proxyDownContainer = document.getElementById('proxydown-grid');
-      if (data.proxyDown.length === 0) {
-        proxyDownContainer.innerHTML = `<div class="col-span-full text-center py-12 text-zinc-600 font-semibold">No bots currently down due to proxies.</div>`;
-      } else {
-        proxyDownContainer.innerHTML = data.proxyDown.map(b => `
-          <div class="bg-zinc-900/60 border border-yellow-900/40 p-5 rounded-2xl flex flex-col justify-between">
-            <div>
-              <div class="flex items-center gap-2 mb-3">
-                <input type="checkbox" value="${b.id}" class="proxy-checkbox w-4 h-4 accent-purple-600 cursor-pointer">
-                <h3 class="font-extrabold text-lg text-yellow-400">${b.username}</h3>
-              </div>
-              <p class="text-xs text-gray-400 mb-1">Server: <span class="text-white">${b.server}</span></p>
-              <p class="text-xs text-gray-400 mb-1">Final Uptime Saved: <span class="text-cyan-400 font-bold">${b.uptime}</span></p>
-              <p class="text-xs text-gray-400 mb-3">Failed At: ${b.failedAt}</p>
-            </div>
-            <button onclick="stopBot('${b.id}')" class="w-full py-2 bg-zinc-800 hover:bg-zinc-700 text-gray-300 rounded-lg text-xs font-bold transition-all">Remove from List</button>
-          </div>
-        `).join('');
-      }
-
-      // Render Banned Bots
-      const bannedContainer = document.getElementById('tab-banned');
-      if (data.banned.length === 0) {
-        bannedContainer.innerHTML = `<div class="col-span-full text-center py-12 text-zinc-600 font-semibold">No bans recorded.</div>`;
-      } else {
-        bannedContainer.innerHTML = data.banned.map(b => `
-          <div class="bg-zinc-900/60 border border-red-900/40 p-5 rounded-2xl">
-            <h3 class="font-extrabold text-lg text-red-400 mb-2">🚫 ${b.username}</h3>
-            <p class="text-xs text-gray-400 mb-1">Reason: <span class="text-white">${b.reason}</span></p>
-            <p class="text-xs text-gray-500">Time: ${b.time}</p>
-          </div>
-        `).join('');
-      }
-    });
-
-    function recoverSelectedBots() {
-      const checkboxes = document.querySelectorAll('.proxy-checkbox:checked');
-      const botIds = Array.from(checkboxes).map(cb => cb.value);
-      const newProxy = document.getElementById('recoveryProxyInput').value;
-
-      if (botIds.length === 0) {
-        return alert('Please select at least 1 disconnected bot from the checkboxes.');
-      }
-      if (botIds.length > 4) {
-        return alert('You can only select a maximum of 4 bots for 1 new proxy!');
-      }
-      if (!newProxy) {
-        return alert('Please enter a new proxy string.');
-      }
-
-      socket.emit('recover_proxy_down', { botIds, newProxy });
-      document.getElementById('recoveryProxyInput').value = '';
+    function formatMs(ms) {
+      const totalSec = Math.floor(ms / 1000);
+      const h = Math.floor(totalSec / 3600);
+      const m = Math.floor((totalSec % 3600) / 60);
+      return `${h}h ${m}m`;
     }
   </script>
 </body>
-  </html>
-
+</html>
