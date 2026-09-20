@@ -15,6 +15,9 @@ const SUCCESS_AFK_FILE = './success_afk_db.json';
 const BANNED_BOTS_FILE = './banned_bots_db.json';
 const STAFF_FILE = './staff_db.json';
 
+// Successful AFK threshold: 20 hours and 1 minute (72,060,000 ms)
+const SUCCESS_AFK_THRESHOLD_MS = (20 * 60 + 1) * 60 * 1000;
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -243,7 +246,8 @@ async function handleBotDisconnect(options, instanceData, errorMsg) {
     instanceData.options.accumulatedUptime = instanceData.accumulatedUptime;
   }
 
-  if (instanceData.accumulatedUptime >= 20 * 60 * 1000) {
+  // Save to Successful AFK if accumulated uptime reaches >= 20 Hours 1 Minute
+  if (instanceData.accumulatedUptime >= SUCCESS_AFK_THRESHOLD_MS) {
     const afkDb = readDb(SUCCESS_AFK_FILE);
     afkDb[username] = {
       ...options,
@@ -253,6 +257,7 @@ async function handleBotDisconnect(options, instanceData, errorMsg) {
       date: new Date().toISOString()
     };
     writeDb(SUCCESS_AFK_FILE, afkDb);
+    logSystemMessage(instanceData, 'SUCCESS: Bot reached 20 hours and 1 minute AFK target!');
   }
 
   instanceData.disconnectCount += 1;
@@ -403,4 +408,4 @@ app.delete('/api/banned-bots/:username', (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
-                                
+                      
