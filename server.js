@@ -1,265 +1,629 @@
 const express = require('express');
 const http = require('http');
-const { Server } = require('socket.io');
+const path = require('path');
+const fs = require('fs');
+const net = require('net');
+const axios = require('axios');
 const mineflayer = require('mineflayer');
 const { SocksClient } = require('socks');
-const { HttpsProxyAgent } = require('https-proxy-agent');
-const axios = require('axios');
-const si = require('systeminformation');
-const { v4: uuidv4 } = require('uuid');
+const { SocksProxyAgent } = require('socks-proxy-agent');
+
+process.on('uncaughtException', (err) => {
+  console.error('CRITICAL UNCAUGHT EXCEPTION:', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('CRITICAL UNHANDLED REJECTION:', reason);
+});
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const PORT = process.env.PORT || 3000;
 
-app.use(express.static('public'));
+const BOTS_FILE = './bots_db.json';
+const PROXY_DOWN_FILE = './proxy_down_db.json';
+const SUCCESS_AFK_FILE = './success_afk_db.json';
+const STAFF_FILE = './staff_db.json';
+
+const TARGET_AFK_MS = (20 * 60 + 1) * 60 * 1000; // 20 hours 1 minute in ms
+
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, 'public')));
 
-// Application State
-const state = {
-    activeBots: {},
-    proxyDown: {},
-    success: [],
-    banned: []
-};
+const activeBots = new Map();
 
-const SUCCESS_UPTIME = (20 * 60 * 60 * 1000) + (60 * 1000); // 20 hours 1 min
+// --- Database Helpers ---
 
-// Helper: Parse proxy string (ip:port)
-function parseProxy(proxyStr) {
-    if (!proxyStr) return null;
-    const [ip, port] = proxyStr.split(':');
-    return { ip, port: parseInt(port) };
+function readDb(filePath) {
+  try {
+    if (fs.existsSync(filePath)) return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch (err) {
+    console.error(`Error reading ${filePath}:`, err);
+  }
+  return {};
 }
 
-// Helper: Proxy Checker
-async function checkProxy(proxyStr) {
-    const proxy = parseProxy(proxyStr);
-    if (!proxy) return { error: "Invalid proxy format" };
-    
-    const agent = new HttpsProxyAgent(`http://${proxy.ip}:${proxy.port}`);
-    let ips = [];
-    
-    try {
-        for (let i = 0; i < 5; i++) {
-            const res = await axios.get('https://api.ipify.org?format=json', { httpsAgent: agent, timeout: 5000 });
-            ips.push(res.data.ip);
-        }
-        const uniqueIps = new Set(ips);
-        return { 
-            alive: true, 
-            type: uniqueIps.size === 1 ? 'Sticky' : 'Rotating',
-            endpoints: Array.from(uniqueIps)
-        };
-    } catch (e) {
-        return { alive: false };
-    }
+function writeDb(filePath, data) {
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+  } catch (err) {
+    console.error(`Error writing ${filePath}:`, err);
+  }
 }
 
-// Bot Spawner Function
-function spawnBot(config) {
-    const { id, username, password, auth, proxyStr, savedUptime = 0 } = config;
-    
-    let botConfig = {
-        host: 'gamester.org',
-        port: 25565,
-        username: username,
-        auth: auth,
-        version: '1.8.9'
-    };
+// --- Staff Evasion List Management ---
 
-    // Apply SOCKS5 Proxy if provided
-    const proxy = parseProxy(proxyStr);
-    if (proxy) {
-        botConfig.connect = client => {
-            SocksClient.createConnection({
-                proxy: { ip: proxy.ip, port: proxy.port, type: 5 },
-                command: 'connect',
-                destination: { host: 'gamester.org', port: 25565 }
-            }).then(info => {
-                client.setSocket(info.socket);
-                client.emit('connect');
-            }).catch(err => {
-                client.emit('error', err);
-            });
-        };
-    }
-
-    const bot = mineflayer.createBot(botConfig);
-    
-    // Bot State tracking
-    state.activeBots[id] = {
-        id, username, password, auth, proxyStr,
-        bot: bot,
-        uptime: savedUptime,
-        lastStartTime: Date.now(),
-        drops: 0,
-        status: 'Connecting...',
-        afkInterval: null,
-        uptimeInterval: null
-    };
-
-    const bState = state.activeBots[id];
-
-    bot.on('spawn', () => {
-        bState.status = 'Spawned';
-        bState.drops = 0;
-        bState.lastStartTime = Date.now();
-        io.emit('sys_log', `[${username}] Spawned successfully.`);
-
-        // Auto-login for cracked accounts
-        if (auth === 'offline' && password) {
-            setTimeout(() => {
-                bot.chat(`/register ${password}${password}`);
-                setTimeout(() => bot.chat(`/login ${password}`), 1000);
-            }, 1500);
-        }
-
-        // Anti-AFK Movement (Every 5-10 mins)
-        bState.afkInterval = setInterval(() => {
-            if(!bot.entity) return;
-            const actions = ['forward', 'back', 'left', 'right', 'jump', 'sprint'];
-            const action = actions[Math.floor(Math.random() * actions.length)];
-            bot.setControlState(action, true);
-            setTimeout(() => bot.setControlState(action, false), 1000);
-            bot.look(Math.random() * Math.PI * 2, (Math.random() - 0.5) * Math.PI);
-        }, Math.random() * (600000 - 300000) + 300000);
-
-        // Uptime Checker
-        bState.uptimeInterval = setInterval(() => {
-            const currentSession = Date.now() - bState.lastStartTime;
-            const totalUptime = bState.uptime + currentSession;
-            if (totalUptime >= SUCCESS_UPTIME) {
-                bState.uptime = totalUptime;
-                state.success.push({ username, password, uptime: totalUptime });
-                io.emit('sys_log', `[${username}] Reached 20h 1m! Moving to Success.`);
-                bot.quit();
-                cleanupBot(id, false);
-            }
-            io.emit('update_bots', getPublicBots());
-        }, 5000);
-    });
-
-    bot.on('playerJoined', (player) => {
-        if (player.username === 'Henriks9') {
-            io.emit('sys_log', `[${username}] STAFF DETECTED (Henriks9). Disconnecting for 15s.`);
-            bState.status = 'Evading Staff';
-            bot.quit();
-            cleanupBot(id, true, 15000); // Reconnect in 15s
-        }
-    });
-
-    bot.on('message', (cm) => {
-        const msg = cm.toString();
-        // Filter out normal chat, keep system/login messages
-        if (msg.includes('ban') || msg.toLowerCase().includes('kicked')) {
-            io.emit('sys_log', `[${username}] Ban/Kick message:${msg}`);
-            if(msg.includes('ban')) {
-                state.banned.push({ username, reason: msg });
-                cleanupBot(id, false);
-            }
-        }
-    });
-
-    bot.on('end', async (reason) => {
-        io.emit('sys_log', `[${username}] Disconnected:${reason}`);
-        if(bState.status !== 'Evading Staff') {
-            bState.drops += 1;
-            if (bState.drops >= 5) {
-                io.emit('sys_log', `[${username}] 5 Drops reached. Checking proxy...`);
-                const pCheck = await checkProxy(proxyStr);
-                if (!pCheck.alive) {
-                    io.emit('sys_log', `[${username}] Proxy dead. Moving to Proxy Down.`);
-                    state.proxyDown[id] = { ...bState, bot: null, uptime: bState.uptime + (Date.now() - bState.lastStartTime) };
-                    cleanupBot(id, false);
-                    return;
-                }
-            }
-            cleanupBot(id, true, 15000); // Normal reconnect in 15s
-        }
-    });
-
-    bot.on('error', (err) => {
-        io.emit('sys_log', `[${username}] Error:${err.message}`);
-    });
-}
-
-function cleanupBot(id, reconnect = false, delay = 0) {
-    const bState = state.activeBots[id];
-    if (!bState) return;
-    
-    clearInterval(bState.afkInterval);
-    clearInterval(bState.uptimeInterval);
-    
-    // Pause uptime
-    if(bState.lastStartTime) {
-        bState.uptime += (Date.now() - bState.lastStartTime);
-        bState.lastStartTime = null;
-    }
-
-    if (reconnect) {
-        setTimeout(() => {
-            if (state.activeBots[id]) {
-                io.emit('sys_log', `[${bState.username}] Reconnecting...`);
-                spawnBot({ ...bState, savedUptime: bState.uptime });
-            }
-        }, delay);
+function getStaffList() {
+  const defaultStaff = ['staff', 'admin', 'mod', 'helper', 'owner', 'henriks9'];
+  try {
+    if (fs.existsSync(STAFF_FILE)) {
+      return JSON.parse(fs.readFileSync(STAFF_FILE, 'utf8'));
     } else {
-        delete state.activeBots[id];
+      fs.writeFileSync(STAFF_FILE, JSON.stringify(defaultStaff, null, 2));
+      return defaultStaff;
     }
-    io.emit('update_bots', getPublicBots());
+  } catch (err) {
+    return defaultStaff;
+  }
 }
 
-function getPublicBots() {
-    return Object.values(state.activeBots).map(b => ({
-        id: b.id, username: b.username, status: b.status, 
-        uptime: b.uptime + (b.lastStartTime ? (Date.now() - bState.lastStartTime) : 0)
-    }));
+function saveStaffList(list) {
+  try {
+    fs.writeFileSync(STAFF_FILE, JSON.stringify(list, null, 2));
+  } catch (err) {
+    console.error('Error saving staff list:', err);
+  }
 }
 
-// Socket.io Events
-io.on('connection', (socket) => {
-    socket.emit('update_bots', getPublicBots());
-    socket.emit('update_proxy_down', Object.values(state.proxyDown));
-    
-    // System stats loop
-    const sysInterval = setInterval(async () => {
-        const cpu = await si.currentLoad();
-        const mem = await si.mem();
-        socket.emit('sys_stats', { cpu: cpu.currentLoad.toFixed(1), ram: ((mem.active / mem.total) * 100).toFixed(1) });
+function checkIsStaff(username) {
+  if (!username) return false;
+  const lower = username.toLowerCase();
+  const currentStaffList = getStaffList();
+  return currentStaffList.some((kw) => lower.includes(kw.toLowerCase()));
+}
+
+// --- Proxy Helpers & TCP Check ---
+
+function parseProxy(proxyStr) {
+  if (!proxyStr || !proxyStr.trim()) return null;
+  const parts = proxyStr.trim().split(':');
+  if (parts.length >= 4) {
+    return {
+      host: parts[0],
+      port: parseInt(parts[1], 10),
+      userId: parts[2],
+      password: parts.slice(3).join(':')
+    };
+  } else if (parts.length === 2) {
+    return { host: parts[0], port: parseInt(parts[1], 10) };
+  }
+  return null;
+}
+
+function checkProxyAlive(proxyConfig) {
+  return new Promise((resolve) => {
+    if (!proxyConfig) return resolve(true);
+    const socket = new net.Socket();
+    socket.setTimeout(5000);
+    socket.on('connect', () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.on('timeout', () => {
+      socket.destroy();
+      resolve(false);
+    });
+    socket.on('error', () => {
+      socket.destroy();
+      resolve(false);
+    });
+    socket.connect(proxyConfig.port, proxyConfig.host);
+  });
+}
+
+function createSocksConnect(proxyConfig, targetHost, targetPort) {
+  return (clientInstance) => {
+    const options = {
+      proxy: { host: proxyConfig.host, port: proxyConfig.port, type: 5 },
+      command: 'connect',
+      destination: { host: targetHost, port: targetPort },
+      timeout: 15000
+    };
+    if (proxyConfig.userId && proxyConfig.password) {
+      options.proxy.userId = proxyConfig.userId;
+      options.proxy.password = proxyConfig.password;
+    }
+    SocksClient.createConnection(options)
+      .then((info) => {
+        clientInstance.setSocket(info.socket);
+        clientInstance.emit('connect');
+      })
+      .catch((err) => {
+        try {
+          clientInstance.emit('error', new Error(`SOCKS5 Error: ${err.message}`));
+        } catch (e) {
+          console.error('Socks connection error:', e.message);
+        }
+      });
+  };
+}
+
+function formatUptime(ms) {
+  const seconds = Math.floor((ms / 1000) % 60);
+  const minutes = Math.floor((ms / (1000 * 60)) % 60);
+  const hours = Math.floor(ms / (1000 * 60 * 60));
+  return `${hours}h ${minutes}m ${seconds}s`;
+}
+
+// --- Anti-AFK Movement Routine ---
+
+function triggerAntiAfkMovement(bot) {
+  if (!bot || !bot.entity) return;
+
+  const controls = ['forward', 'backwards', 'left', 'right', 'jump', 'sprint'];
+  const startTime = Date.now();
+
+  const moveInterval = setInterval(() => {
+    if (!bot || !bot.entity || Date.now() - startTime > 15000) {
+      clearInterval(moveInterval);
+      controls.forEach((ctrl) => {
+        try { bot.setControlState(ctrl, false); } catch (e) {}
+      });
+      return;
+    }
+
+    try {
+      const randomControl = controls[Math.floor(Math.random() * controls.length)];
+      bot.setControlState(randomControl, true);
+
+      const newYaw = bot.entity.yaw + 0.3;
+      const newPitch = Math.sin(Date.now() / 500) * 0.2;
+      bot.look(newYaw, newPitch, true);
+
+      setTimeout(() => {
+        try { bot.setControlState(randomControl, false); } catch (e) {}
+      }, 1000);
+    } catch (e) {}
+  }, 1200);
+}
+
+function scheduleNextAntiAfk(instanceData) {
+  if (instanceData.afkTimeout) clearTimeout(instanceData.afkTimeout);
+  
+  const randomDelay = Math.floor(Math.random() * (600000 - 300000 + 1)) + 300000;
+
+  instanceData.afkTimeout = setTimeout(() => {
+    if (instanceData.bot && instanceData.bot.entity) {
+      triggerAntiAfkMovement(instanceData.bot);
+    }
+    scheduleNextAntiAfk(instanceData);
+  }, randomDelay);
+}
+
+// --- Bot Lifecycle Management ---
+
+function startBotInstance(options) {
+  const { username, password, proxyInput, mcVersion, host, port, hffaEnabled, hffaTarget } = options;
+  const proxyConfig = parseProxy(proxyInput);
+
+  const botOpts = {
+    host,
+    port: parseInt(port, 10) || 25565,
+    username,
+    password: password || undefined,
+    version: mcVersion || '1.8.9',
+    viewDistance: 16,
+    checkTimeoutInterval: 120000
+  };
+
+  if (proxyConfig) {
+    botOpts.connect = createSocksConnect(proxyConfig, host, botOpts.port);
+  }
+
+  let instanceData = activeBots.get(username) || {
+    bot: null,
+    accumulatedUptime: options.accumulatedUptime || 0,
+    sessionStart: null,
+    afkTimeout: null,
+    hffaInterval: null,
+    followInterval: null,
+    uptimeTracker: null,
+    reconnectTimer: null,
+    chatLogs: [],
+    options
+  };
+
+  let bot;
+  try {
+    bot = mineflayer.createBot(botOpts);
+  } catch (err) {
+    console.error(`[${username}] Init error:`, err.message);
+    handleFailureAndReconnect(options, instanceData);
+    return;
+  }
+
+  instanceData.bot = bot;
+  activeBots.set(username, instanceData);
+
+  const allBots = readDb(BOTS_FILE);
+  allBots[username] = { ...options, accumulatedUptime: instanceData.accumulatedUptime };
+  writeDb(BOTS_FILE, allBots);
+
+  bot.on('messagestr', (message) => {
+    try {
+      if (message && message.trim().length > 0) {
+        instanceData.chatLogs.push(message);
+        if (instanceData.chatLogs.length > 50) instanceData.chatLogs.shift();
+      }
+    } catch (e) {}
+  });
+
+  bot.once('spawn', () => {
+    console.log(`[Bot ${username}] Spawned into ${host}:${botOpts.port}`);
+    instanceData.sessionStart = Date.now();
+
+    if (instanceData.uptimeTracker) clearInterval(instanceData.uptimeTracker);
+    instanceData.uptimeTracker = setInterval(() => {
+      if (instanceData.sessionStart) {
+        const currentSession = Date.now() - instanceData.sessionStart;
+        const totalUptime = instanceData.accumulatedUptime + currentSession;
+
+        if (totalUptime >= TARGET_AFK_MS) {
+          console.log(`[Bot ${username}] Target reached (20h 1m). Moving to Successfully AFK.`);
+          completeAfkTarget(username, options, totalUptime);
+        }
+      }
     }, 5000);
 
-    socket.on('deploy', (data) => {
-        const id = uuidv4();
-        spawnBot({ id, ...data });
+    if (password) {
+      setTimeout(() => { if (bot?.chat) bot.chat(`/register ${password} ${password}`); }, 1500);
+      setTimeout(() => { if (bot?.chat) bot.chat(`/login ${password}`); }, 3500);
+    }
+
+    scheduleNextAntiAfk(instanceData);
+
+    // Dynamic Staff Evasion Check
+    bot.on('playerJoined', (player) => {
+      if (player && checkIsStaff(player.username)) {
+        console.warn(`[STAFF EVASION ALERT] ${player.username} joined! Disconnecting ${username}...`);
+        safelyDisconnectBot(username, 'Staff member detected');
+      }
     });
 
-    socket.on('global_command', (cmd) => {
-        Object.values(state.activeBots).forEach(b => {
-            if(b.bot && b.bot.entity) b.bot.chat(cmd);
-        });
-        io.emit('sys_log', `[GLOBAL] Executed: ${cmd}`);
-    });
+    if (hffaEnabled) {
+      setTimeout(async () => {
+        try {
+          for (const slot of ['head', 'torso', 'legs', 'feet']) {
+            if (bot) await bot.unequip(slot).catch(() => {});
+          }
+        } catch (e) {}
+      }, 3000);
 
-    socket.on('check_proxy', async (proxy) => {
-        socket.emit('sys_log', `[Proxy Tool] Checking ${proxy}...`);
-        const res = await checkProxy(proxy);
-        socket.emit('proxy_tool_result', res);
-    });
+      if (instanceData.hffaInterval) clearInterval(instanceData.hffaInterval);
+      instanceData.hffaInterval = setInterval(() => {
+        if (bot?.chat) bot.chat('/play hardcoreffa');
+      }, 60000);
 
-    socket.on('revive_bots', (data) => { // data = { ids: [], newProxy: '' }
-        data.ids.forEach(id => {
-            const botData = state.proxyDown[id];
-            if(botData) {
-                botData.proxyStr = data.newProxy;
-                spawnBot({ ...botData, savedUptime: botData.uptime });
-                delete state.proxyDown[id];
+      if (hffaTarget) {
+        if (instanceData.followInterval) clearInterval(instanceData.followInterval);
+        instanceData.followInterval = setInterval(() => {
+          try {
+            if (bot?.entity && bot.players[hffaTarget]?.entity) {
+              const targetEntity = bot.players[hffaTarget].entity;
+              bot.lookAt(targetEntity.position.offset(0, targetEntity.height, 0));
+              bot.setControlState('forward', true);
+              if (bot.entity.position.distanceTo(targetEntity.position) < 3) {
+                bot.setControlState('forward', false);
+              }
+            } else if (bot) {
+              bot.setControlState('forward', false);
             }
-        });
-        io.emit('update_proxy_down', Object.values(state.proxyDown));
-    });
+          } catch (e) {}
+        }, 1000);
+      }
+    }
+  });
 
-    socket.on('disconnect', () => clearInterval(sysInterval));
+  const handleDisconnect = (err) => {
+    if (instanceData.sessionStart) {
+      instanceData.accumulatedUptime += Date.now() - instanceData.sessionStart;
+      instanceData.sessionStart = null;
+    }
+
+    if (instanceData.afkTimeout) clearTimeout(instanceData.afkTimeout);
+    if (instanceData.hffaInterval) clearInterval(instanceData.hffaInterval);
+    if (instanceData.followInterval) clearInterval(instanceData.followInterval);
+    if (instanceData.uptimeTracker) clearInterval(instanceData.uptimeTracker);
+
+    console.log(`[Bot ${username}] Disconnected. Saved Uptime: ${formatUptime(instanceData.accumulatedUptime)}`);
+    handleFailureAndReconnect(options, instanceData);
+  };
+
+  bot.on('kicked', handleDisconnect);
+  bot.on('error', handleDisconnect);
+  bot.on('end', handleDisconnect);
+}
+
+async function handleFailureAndReconnect(options, instanceData) {
+  const { username, proxyInput } = options;
+  const proxyConfig = parseProxy(proxyInput);
+
+  const isProxyAlive = await checkProxyAlive(proxyConfig);
+
+  if (!isProxyAlive) {
+    console.error(`[PROXY DOWN] Proxy ${proxyInput} for ${username} is offline. Moving to Proxy Down queue.`);
+    
+    activeBots.delete(username);
+    const activeDb = readDb(BOTS_FILE);
+    delete activeDb[username];
+    writeDb(BOTS_FILE, activeDb);
+
+    const downDb = readDb(PROXY_DOWN_FILE);
+    downDb[username] = {
+      ...options,
+      accumulatedUptime: instanceData ? instanceData.accumulatedUptime : 0,
+      downTimestamp: Date.now()
+    };
+    writeDb(PROXY_DOWN_FILE, downDb);
+  } else {
+    if (instanceData && instanceData.reconnectTimer) clearTimeout(instanceData.reconnectTimer);
+    if (instanceData) {
+      instanceData.reconnectTimer = setTimeout(() => {
+        if (activeBots.has(username)) startBotInstance(options);
+      }, 25000);
+    }
+  }
+}
+
+function completeAfkTarget(username, options, totalUptime) {
+  safelyDisconnectBot(username, 'Completed 20h 1m AFK target');
+
+  const successDb = readDb(SUCCESS_AFK_FILE);
+  successDb[username] = {
+    ...options,
+    totalUptime,
+    completedAt: new Date().toISOString()
+  };
+  writeDb(SUCCESS_AFK_FILE, successDb);
+}
+
+function safelyDisconnectBot(username, reason) {
+  const instanceData = activeBots.get(username);
+  if (!instanceData) return;
+
+  if (instanceData.sessionStart) {
+    instanceData.accumulatedUptime += Date.now() - instanceData.sessionStart;
+  }
+
+  if (instanceData.reconnectTimer) clearTimeout(instanceData.reconnectTimer);
+  if (instanceData.afkTimeout) clearTimeout(instanceData.afkTimeout);
+  if (instanceData.hffaInterval) clearInterval(instanceData.hffaInterval);
+  if (instanceData.followInterval) clearInterval(instanceData.followInterval);
+  if (instanceData.uptimeTracker) clearInterval(instanceData.uptimeTracker);
+
+  if (instanceData.bot) {
+    try { instanceData.bot.quit(); } catch (e) {}
+  }
+
+  activeBots.delete(username);
+  const activeDb = readDb(BOTS_FILE);
+  delete activeDb[username];
+  writeDb(BOTS_FILE, activeDb);
+}
+
+// --- REST Endpoints: Staff Evasion ---
+
+app.get('/api/staff', (req, res) => {
+  res.json({ staff: getStaffList() });
 });
 
-server.listen(3000, () => console.log('Sleepy Client listening on port 3000'));
+app.post('/api/staff/add', (req, res) => {
+  const { username } = req.body;
+  if (!username || typeof username !== 'string' || !username.trim()) {
+    return res.status(400).json({ error: 'Please provide a valid staff username or keyword.' });
+  }
+
+  const staffList = getStaffList();
+  const cleanName = username.trim().toLowerCase();
+
+  if (staffList.includes(cleanName)) {
+    return res.status(400).json({ error: 'Name already exists in staff evasion list.' });
+  }
+
+  staffList.push(cleanName);
+  saveStaffList(staffList);
+  res.json({ success: true, message: `Added '${cleanName}' to staff evasion list.`, staff: staffList });
+});
+
+app.post('/api/staff/remove', (req, res) => {
+  const { username } = req.body;
+  if (!username || typeof username !== 'string') {
+    return res.status(400).json({ error: 'Please provide a valid staff username.' });
+  }
+
+  let staffList = getStaffList();
+  const cleanName = username.trim().toLowerCase();
+
+  if (!staffList.includes(cleanName)) {
+    return res.status(400).json({ error: 'Name not found in staff evasion list.' });
+  }
+
+  staffList = staffList.filter((item) => item !== cleanName);
+  saveStaffList(staffList);
+  res.json({ success: true, message: `Removed '${cleanName}' from staff evasion list.`, staff: staffList });
+});
+
+// --- REST Endpoint: Proxy Checker ---
+
+app.post('/api/check-proxy', async (req, res) => {
+  const { proxy } = req.body;
+  const parsed = parseProxy(proxy);
+
+  if (!parsed) {
+    return res.status(400).json({ error: 'Invalid proxy format. Use host:port or host:port:user:pass' });
+  }
+
+  const authString = parsed.userId && parsed.password ? `${parsed.userId}:${parsed.password}@` : '';
+  const socksUrl = `socks5://${authString}${parsed.host}:${parsed.port}`;
+  const agent = new SocksProxyAgent(socksUrl);
+
+  const endpointIps = [];
+
+  for (let i = 0; i < 5; i++) {
+    try {
+      const response = await axios.get('https://api.ipify.org?format=json', {
+        httpAgent: agent,
+        httpsAgent: agent,
+        timeout: 7000
+      });
+      if (response.data && response.data.ip) {
+        endpointIps.push(response.data.ip);
+      }
+    } catch (err) {
+      endpointIps.push(`Failed Request (${err.message})`);
+    }
+  }
+
+  const validIps = endpointIps.filter((ip) => !ip.startsWith('Failed'));
+
+  if (validIps.length === 0) {
+    return res.json({
+      success: false,
+      proxy,
+      type: 'dead',
+      message: 'Proxy failed all 5 requests',
+      requests: endpointIps
+    });
+  }
+
+  const allSame = validIps.every((ip) => ip === validIps[0]);
+  const proxyType = allSame ? 'sticky' : 'rotating';
+
+  res.json({
+    success: true,
+    proxy,
+    type: proxyType,
+    endpointIps
+  });
+});
+
+// --- Other Endpoints ---
+
+app.post('/api/bots/add', (req, res) => {
+  const { username, password, proxyInput, mcVersion, host, port, hffaEnabled, hffaTarget } = req.body;
+  if (!username || !host) {
+    return res.status(400).json({ error: 'Username and host are required.' });
+  }
+
+  const options = {
+    username,
+    password,
+    proxyInput,
+    mcVersion: mcVersion || '1.8.9',
+    host,
+    port: port || 25565,
+    hffaEnabled: !!hffaEnabled,
+    hffaTarget,
+    accumulatedUptime: 0
+  };
+
+  startBotInstance(options);
+  res.json({ success: true, message: `Bot ${username} starting...` });
+});
+
+app.post('/api/bots/stop', (req, res) => {
+  const { username } = req.body;
+  safelyDisconnectBot(username, 'Manual stop');
+  res.json({ success: true, message: `Bot ${username} stopped.` });
+});
+
+app.get('/api/proxy-down', (req, res) => {
+  const downDb = readDb(PROXY_DOWN_FILE);
+  const list = Object.entries(downDb).map(([username, data]) => ({
+    username,
+    password: data.password,
+    lastProxy: data.proxyInput,
+    accumulatedUptime: formatUptime(data.accumulatedUptime || 0),
+    downSince: new Date(data.downTimestamp).toLocaleString()
+  }));
+  res.json(list);
+});
+
+app.post('/api/revive-proxies', (req, res) => {
+  const { revivals } = req.body;
+
+  if (!Array.isArray(revivals) || revivals.length === 0 || revivals.length > 4) {
+    return res.status(400).json({ error: 'Provide an array of 1 to 4 bot revival entries.' });
+  }
+
+  const downDb = readDb(PROXY_DOWN_FILE);
+  const results = [];
+
+  for (const entry of revivals) {
+    const { username, newProxy } = entry;
+    const botRecord = downDb[username];
+
+    if (!botRecord) {
+      results.push({ username, success: false, reason: 'Bot not found in Proxy Down queue' });
+      continue;
+    }
+
+    const updatedOptions = {
+      ...botRecord,
+      proxyInput: newProxy
+    };
+
+    delete downDb[username];
+    startBotInstance(updatedOptions);
+    results.push({ username, success: true, newProxy });
+  }
+
+  writeDb(PROXY_DOWN_FILE, downDb);
+  res.json({ success: true, results });
+});
+
+app.get('/api/successfully-afk', (req, res) => {
+  const successDb = readDb(SUCCESS_AFK_FILE);
+  res.json(successDb);
+});
+
+app.get('/api/status', (req, res) => {
+  const statuses = [];
+  activeBots.forEach((data, username) => {
+    const { bot, sessionStart, accumulatedUptime, options, chatLogs } = data;
+
+    const currentSession = sessionStart ? Date.now() - sessionStart : 0;
+    const totalActiveUptime = accumulatedUptime + currentSession;
+
+    let health = 'N/A';
+    let food = 'N/A';
+
+    if (bot) {
+      if (typeof bot.health === 'number') health = bot.health.toFixed(1);
+      if (typeof bot.food === 'number') food = bot.food.toFixed(1);
+    }
+
+    statuses.push({
+      username,
+      host: `${options.host}:${options.port}`,
+      activeUptime: formatUptime(totalActiveUptime),
+      health,
+      food,
+      proxy: options.proxyInput ? options.proxyInput.split(':')[0] : 'Direct Connection',
+      hffaActive: !!options.hffaEnabled,
+      chatLogs: chatLogs.slice(-10)
+    });
+  });
+  res.json(statuses);
+});
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`[Dark AFK] Server online on port ${PORT}`);
+
+  const savedBots = readDb(BOTS_FILE);
+  for (const [username, config] of Object.entries(savedBots)) {
+    startBotInstance(config);
+  }
+});
+                  
