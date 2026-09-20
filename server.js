@@ -24,6 +24,16 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const activeBots = new Map();
 
+// Default staff list provided by user
+const DEFAULT_STAFF_LIST = [
+  'henriks9', 'seeken', 'akyss', 'lupu_xx_x', 'ionutz547', 'andreibeni',
+  'snaccks', 'gr_veteran', 'osmiumredox', 'bombita_01', 'ld007', 'space_turtle9',
+  'urswu', 'gamsterevent', 'xspeed10', 'fredy_9', 'weepinangels', 'h2mzh',
+  'doritostar', 'athul', 'godkissed', 'synchitss', '_pixelwarrioryt_', 'karlthhkiller3',
+  'pintux', 'wost_ali', 'robi5937', 'mihaaiiii', 'megasus', 'theashz',
+  'tini_alina', 'gamster', 'itsb2_', 'officialmex', 'nayskutzu', 'maria_int'
+];
+
 function readDb(filePath) {
   try {
     if (fs.existsSync(filePath)) return JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -38,15 +48,14 @@ function writeDb(filePath, data) {
 }
 
 function getStaffList() {
-  const defaultStaff = ['staff', 'admin', 'mod', 'helper', 'owner', 'henriks9'];
   try {
     if (fs.existsSync(STAFF_FILE)) {
       return JSON.parse(fs.readFileSync(STAFF_FILE, 'utf8'));
     }
-    fs.writeFileSync(STAFF_FILE, JSON.stringify(defaultStaff, null, 2));
-    return defaultStaff;
+    fs.writeFileSync(STAFF_FILE, JSON.stringify(DEFAULT_STAFF_LIST, null, 2));
+    return DEFAULT_STAFF_LIST;
   } catch (err) {
-    return defaultStaff;
+    return DEFAULT_STAFF_LIST;
   }
 }
 
@@ -267,9 +276,10 @@ function startBotInstance(options) {
 
     startHumanMovementRoutine(bot, instanceData);
 
+    // TAB-LIST ONLY STAFF DETECTION
     bot.on('playerJoined', (player) => {
-      if (player && checkIsStaff(player.username)) {
-        logSystemMessage(instanceData, `STAFF DETECTION: Staff member '${player.username}' detected! Disconnecting for 15 seconds...`);
+      if (player && player.username && checkIsStaff(player.username)) {
+        logSystemMessage(instanceData, `STAFF TAB DETECTED: Staff '${player.username}' joined tab list! Disconnecting for 15s...`);
         disconnectAndReconnectForStaff(options, instanceData);
       }
     });
@@ -377,9 +387,9 @@ async function handleBotDisconnect(options, instanceData, errorMsg) {
       writeDb(PROXY_DOWN_FILE, downDb);
       return;
     } else {
-      // PROXY IS ALIVE AND HAS NETWORK -> RESET ATTEMPT COUNTER BACK TO 0
+      // PROXY IS ALIVE AND HAS NETWORK -> RESET COUNTER TO 0
       logSystemMessage(instanceData, 'SYSTEM: Proxy is ALIVE and has network access. Resetting disconnect counter from 5 to 0. Reconnecting...');
-      instanceData.disconnectCount = 0; // <--- RESET TO 0 HERE
+      instanceData.disconnectCount = 0;
     }
   }
 
@@ -535,4 +545,4 @@ app.delete('/api/banned-bots/:username', (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
-  
+        
