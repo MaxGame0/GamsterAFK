@@ -5,6 +5,8 @@ const fs = require('fs');
 const net = require('net');
 const mineflayer = require('mineflayer');
 const { SocksClient } = require('socks');
+const axios = require('axios');
+const { SocksProxyAgent } = require('socks-proxy-agent');
 
 const app = express();
 const server = http.createServer(app);
@@ -15,7 +17,6 @@ const SUCCESS_AFK_FILE = './success_afk_db.json';
 const BANNED_BOTS_FILE = './banned_bots_db.json';
 const STAFF_FILE = './staff_db.json';
 
-// Successful AFK threshold: 20 hours and 1 minute (72,060,000 ms)
 const SUCCESS_AFK_THRESHOLD_MS = (20 * 60 + 1) * 60 * 1000;
 
 app.use(express.json());
@@ -71,6 +72,59 @@ function parseProxy(proxyStr) {
     return { host: parts[0], port: parseInt(parts[1], 10) };
   }
   return null;
+}
+
+// 5-Request Proxy Type Checker Function
+async function checkProxyType5Req(proxyStr) {
+  const proxyConfig = parseProxy(proxyStr);
+  if (!proxyConfig) return { type: 'DIRECT', ips: [], success: false, reason: 'Invalid or No Proxy Format' };
+
+  let authPart = '';
+  if (proxyConfig.userId && proxyConfig.password) {
+    authPart = `${proxyConfig.userId}:${proxyConfig.password}@`;
+  }
+  const proxyUrl = `socks5://${authPart}${proxyConfig.host}:${proxyConfig.port}`;
+  
+  let agent;
+  try {
+    agent = new SocksProxyAgent(proxyUrl);
+  } catch (e) {
+    return { type: 'ERROR', ips: [], success: false, reason: 'Agent Creation Failed' };
+  }
+
+  const endpoint = 'https://api.ipify.org?format=json';
+  const ips = [];
+
+  for (let i = 0; i < 5; i++) {
+    try {
+      const res = await axios.get(endpoint, {
+        httpAgent: agent,
+        httpsAgent: agent,
+        proxy: false,
+        timeout: 4000
+      });
+      if (res.data && res.data.ip) {
+        ips.push(res.data.ip);
+      }
+    } catch (err) {
+      // If individual request fails, continue trying
+    }
+  }
+
+  if (ips.length === 0) {
+    return { type: 'DEAD / OFFLINE', ips: [], success: false, reason: 'All 5 requests failed' };
+  }
+
+  const uniqueIPs = new Set(ips);
+  const type = uniqueIPs.size > 1 ? 'ROTATING' : 'STATIC';
+
+  return {
+    type,
+    ips,
+    uniqueCount: uniqueIPs.size,
+    successCount: ips.length,
+    success: true
+  };
 }
 
 function checkProxyAlive(proxyConfig) {
@@ -175,12 +229,23 @@ function startBotInstance(options) {
     sessionStart: null,
     disconnectCount: 0,
     systemLogs: [],
+    proxyType: 'CHECKING...',
     moveTimeout: null,
     moveDurationTimeout: null,
     options
   };
 
   instanceData.options = { ...options, accumulatedUptime: instanceData.accumulatedUptime };
+
+  // Run proxy checker in background upon start
+  if (proxyInput) {
+    checkProxyType5Req(proxyInput).then(res => {
+      instanceData.proxyType = res.type;
+      logSystemMessage(instanceData, `PROXY CHECK (5 Reqs): Detected as ${res.type} (${res.successCount}/5 successful IPs: ${res.ips.join(', ')})`);
+    });
+  } else {
+    instanceData.proxyType = 'DIRECT';
+  }
 
   let bot;
   try {
@@ -341,9 +406,16 @@ function safelyDisconnectBot(username, reason) {
 }
 
 // REST ENDPOINTS
-app.get('/api/staff', (req, res) => {
-  res.json(getStaffList());
+
+// Standalone Proxy Type Checker Endpoint
+app.post('/api/proxy/check-type', async (req, res) => {
+  const { proxyInput } = req.body;
+  if (!proxyInput) return res.status(400).json({ error: 'Proxy input string required' });
+  const result = await checkProxyType5Req(proxyInput);
+  res.json(result);
 });
+
+app.get('/api/staff', (req, res) => res.json(getStaffList()));
 
 app.post('/api/staff/add', (req, res) => {
   const { name } = req.body;
@@ -397,6 +469,7 @@ app.get('/api/status', (req, res) => {
       host: `${data.options.host || 'gamester.org'}:${data.options.port || 25565}`,
       uptime: formatUptime(totalMs),
       proxy: data.options.proxyInput ? data.options.proxyInput.split(':')[0] : 'Direct',
+      proxyType: data.proxyType || 'CHECKING...',
       disconnects: data.disconnectCount
     });
   });
