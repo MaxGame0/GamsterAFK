@@ -13,18 +13,47 @@
     th, td { padding: 8px; border-bottom: 1px solid #2a2d42; text-align: left; font-size: 0.85rem; }
     th { color: #a0a0a0; }
     .console-box { background: #0d0e15; height: 160px; overflow-y: auto; padding: 10px; font-family: monospace; font-size: 0.8rem; border-radius: 4px; border: 1px solid #2a2d42; }
-    input, button, select { background: #0d0e15; color: #fff; border: 1px solid #2a2d42; padding: 8px; border-radius: 4px; }
+    input, button, select, textarea { background: #0d0e15; color: #fff; border: 1px solid #2a2d42; padding: 8px; border-radius: 4px; }
     button { background: #7289da; cursor: pointer; font-weight: bold; border: none; }
     button.danger { background: #e74c3c; }
     button.success { background: #2ecc71; color: #000; }
     button.small { padding: 4px 8px; font-size: 0.75rem; }
-    .flex-row { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+    .flex-row { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+    textarea { width: 100%; height: 80px; font-family: monospace; font-size: 0.8rem; box-sizing: border-box; }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="full-width card">
       <h1>Dark AFK Control Dashboard</h1>
+    </div>
+
+    <!-- ADD SINGLE BOT CARD -->
+    <div class="card">
+      <h2>➕ Add Single Bot</h2>
+      <div class="flex-row">
+        <input type="text" id="singleUser" placeholder="Username *" style="flex: 1;">
+        <input type="text" id="singlePass" placeholder="Password" style="flex: 1;">
+      </div>
+      <div class="flex-row">
+        <input type="text" id="singleProxy" placeholder="Proxy (host:port:user:pass)" style="flex: 1;">
+      </div>
+      <div class="flex-row">
+        <input type="text" id="singleHost" placeholder="Server Host (Default: gamester.org)" style="flex: 1;">
+        <input type="text" id="singlePort" placeholder="Port (Default: 25565)" style="width: 100px;">
+      </div>
+      <button class="success" onclick="addSingleBot()" style="width: 100%;">Launch Bot</button>
+    </div>
+
+    <!-- BULK ADD BOTS CARD -->
+    <div class="card">
+      <h2>📦 Bulk Add Bots (Lines: user:pass:proxy)</h2>
+      <textarea id="bulkInput" placeholder="bot1:pass123:1.2.3.4:1080&#10;bot2:pass123:5.6.7.8:1080:user:pass&#10;bot3:pass123"></textarea>
+      <div class="flex-row" style="margin-top: 10px;">
+        <input type="text" id="bulkHost" placeholder="Server Host (Default: gamester.org)" style="flex: 1;">
+        <input type="text" id="bulkPort" placeholder="Port (Default: 25565)" style="width: 100px;">
+        <button class="success" onclick="addBulkBots()">Launch All Bots</button>
+      </div>
     </div>
 
     <!-- ACTIVE BOTS TABLE -->
@@ -40,7 +69,7 @@
     <div class="card full-width">
       <h2>📜 System & Event Console</h2>
       <div class="flex-row">
-        <select id="chatBotSelect" onchange="loadLogs()"><option value="">Select Bot</option></select>
+        <select id="chatBotSelect" onchange="loadSystemConsole()"><option value="">Select Bot</option></select>
       </div>
       <div class="console-box" id="systemConsole">Select an active bot to view system events...</div>
     </div>
@@ -88,6 +117,59 @@
   </div>
 
   <script>
+    async function addSingleBot() {
+      const username = document.getElementById('singleUser').value.trim();
+      const password = document.getElementById('singlePass').value.trim();
+      const proxyInput = document.getElementById('singleProxy').value.trim();
+      const host = document.getElementById('singleHost').value.trim();
+      const port = document.getElementById('singlePort').value.trim();
+
+      if (!username) return alert('Username is required.');
+
+      await fetch('/api/bots/add-single', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password, proxyInput, host, port })
+      });
+
+      document.getElementById('singleUser').value = '';
+      document.getElementById('singlePass').value = '';
+      document.getElementById('singleProxy').value = '';
+      loadStatus();
+    }
+
+    async function addBulkBots() {
+      const text = document.getElementById('bulkInput').value.trim();
+      const host = document.getElementById('bulkHost').value.trim();
+      const port = document.getElementById('bulkPort').value.trim();
+
+      if (!text) return alert('Enter bot details.');
+
+      const lines = text.split('\n');
+      const bots = [];
+
+      lines.forEach(line => {
+        const parts = line.trim().split(':');
+        if (parts.length >= 1 && parts[0]) {
+          const username = parts[0];
+          const password = parts[1] || '';
+          const proxyInput = parts.slice(2).join(':');
+          bots.push({ username, password, proxyInput, host, port });
+        }
+      });
+
+      if (bots.length === 0) return alert('No valid bot lines found.');
+
+      await fetch('/api/bots/add-bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bots })
+      });
+
+      document.getElementById('bulkInput').value = '';
+      loadStatus();
+    }
+
     async function loadStatus() {
       const res = await fetch('/api/status');
       const bots = await res.json();
