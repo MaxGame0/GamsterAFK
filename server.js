@@ -112,7 +112,7 @@ function logSystemMessage(instanceData, msg) {
 
 function startHumanMovementRoutine(bot, instanceData) {
   const scheduleNext = () => {
-    const delay = Math.floor(Math.random() * (600000 - 300000 + 1)) + 300000; // 5 to 10 minutes
+    const delay = Math.floor(Math.random() * (600000 - 300000 + 1)) + 300000;
     instanceData.moveTimeout = setTimeout(() => executeMovement(), delay);
   };
 
@@ -122,21 +122,18 @@ function startHumanMovementRoutine(bot, instanceData) {
     const controls = ['forward', 'back', 'left', 'right', 'jump', 'sprint'];
     const activeControls = [];
 
-    // Choose 2-3 random controls
     for (let i = 0; i < 3; i++) {
       const randomControl = controls[Math.floor(Math.random() * controls.length)];
       bot.setControlState(randomControl, true);
       activeControls.push(randomControl);
     }
 
-    // Smooth camera pitch and yaw rotations
     const yawChange = (Math.random() - 0.5) * Math.PI;
     const pitchChange = (Math.random() - 0.5) * (Math.PI / 2);
     try {
       bot.look(bot.entity.yaw + yawChange, bot.entity.pitch + pitchChange, false);
     } catch (e) {}
 
-    // Run movement for 15 seconds
     instanceData.moveDurationTimeout = setTimeout(() => {
       activeControls.forEach((ctrl) => bot.setControlState(ctrl, false));
       scheduleNext();
@@ -246,7 +243,6 @@ async function handleBotDisconnect(options, instanceData, errorMsg) {
     instanceData.options.accumulatedUptime = instanceData.accumulatedUptime;
   }
 
-  // Save to Successful AFK if uptime >= 20 mins
   if (instanceData.accumulatedUptime >= 20 * 60 * 1000) {
     const afkDb = readDb(SUCCESS_AFK_FILE);
     afkDb[username] = {
@@ -310,6 +306,13 @@ function safelyDisconnectBot(username, reason) {
 }
 
 // REST ENDPOINTS
+app.post('/api/bots/add-single', (req, res) => {
+  const { username, password, proxyInput, host, port, mcVersion } = req.body;
+  if (!username) return res.status(400).json({ error: 'Username is required' });
+  startBotInstance({ username, password, proxyInput, host, port, mcVersion, accumulatedUptime: 0 });
+  res.json({ success: true, message: `Started bot ${username}` });
+});
+
 app.post('/api/bots/add-bulk', (req, res) => {
   const { bots } = req.body;
   if (!Array.isArray(bots)) return res.status(400).json({ error: 'Invalid input' });
@@ -400,4 +403,4 @@ app.delete('/api/banned-bots/:username', (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
-        
+                                
