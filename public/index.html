@@ -15,17 +15,47 @@
     .console-box { background: #0d0e15; height: 160px; overflow-y: auto; padding: 10px; font-family: monospace; font-size: 0.8rem; border-radius: 4px; border: 1px solid #2a2d42; }
     input, button, select, textarea { background: #0d0e15; color: #fff; border: 1px solid #2a2d42; padding: 8px; border-radius: 4px; }
     button { background: #7289da; cursor: pointer; font-weight: bold; border: none; }
-    button.danger { background: #e74c3c; }
+    button.danger { background: #e74c3c; color: #fff; }
     button.success { background: #2ecc71; color: #000; }
     button.small { padding: 4px 8px; font-size: 0.75rem; }
     .flex-row { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
     textarea { width: 100%; height: 80px; font-family: monospace; font-size: 0.8rem; box-sizing: border-box; }
+    .staff-tag { display: inline-flex; align-items: center; background: #2a2d42; padding: 4px 10px; border-radius: 12px; margin: 3px; font-size: 0.85rem; }
+    .staff-tag button { background: none; border: none; color: #e74c3c; margin-left: 8px; cursor: pointer; font-weight: bold; font-size: 0.9rem; padding: 0; }
+    
+    .badge { padding: 3px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; text-transform: uppercase; }
+    .badge-static { background: #27ae60; color: #fff; }
+    .badge-rotating { background: #e67e22; color: #fff; }
+    .badge-checking { background: #f1c40f; color: #000; }
+    .badge-dead { background: #e74c3c; color: #fff; }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="full-width card">
       <h1>Dark AFK Control Dashboard</h1>
+    </div>
+
+    <!-- PROXY 5-REQUEST TYPE TESTER CARD -->
+    <div class="card full-width">
+      <h2>🌐 5-Request Proxy Type Checker (Static vs Rotating)</h2>
+      <div class="flex-row">
+        <input type="text" id="checkProxyInput" placeholder="Enter proxy (host:port:user:pass)" style="flex: 1;">
+        <button onclick="testProxyType()">🔍 Test Proxy (5 Reqs)</button>
+      </div>
+      <div id="proxyTestResult" style="font-size: 0.85rem; margin-top: 5px; color: #aaa;">
+        Results will show if proxy returns single IP (STATIC) or multiple IPs (ROTATING).
+      </div>
+    </div>
+
+    <!-- STAFF DETECTION SETTINGS -->
+    <div class="card full-width">
+      <h2>🛡️ Staff Detection Settings (15s Reconnect)</h2>
+      <div class="flex-row">
+        <input type="text" id="newStaffName" placeholder="Enter staff keyword or username..." style="flex: 1;">
+        <button class="success" onclick="addStaff()">Add Staff Name</button>
+      </div>
+      <div id="staffListContainer" style="margin-top: 10px;"></div>
     </div>
 
     <!-- ADD SINGLE BOT CARD -->
@@ -60,7 +90,7 @@
     <div class="card full-width">
       <h2>🤖 Active Bots</h2>
       <table>
-        <thead><tr><th>Username</th><th>Password</th><th>Server</th><th>Uptime</th><th>Attempts</th><th>Proxy</th><th>Action</th></tr></thead>
+        <thead><tr><th>Username</th><th>Password</th><th>Server</th><th>Uptime</th><th>Attempts</th><th>Proxy</th><th>Proxy Type</th><th>Action</th></tr></thead>
         <tbody id="activeBotsTable"></tbody>
       </table>
     </div>
@@ -74,7 +104,7 @@
       <div class="console-box" id="systemConsole">Select an active bot to view system events...</div>
     </div>
 
-    <!-- PROXY DOWN SECTION (WITH BULK RE-ASSIGN) -->
+    <!-- PROXY DOWN SECTION -->
     <div class="card full-width">
       <h2>⚠️ Proxy Down Bots</h2>
       <div class="flex-row">
@@ -117,6 +147,68 @@
   </div>
 
   <script>
+    async function testProxyType() {
+      const input = document.getElementById('checkProxyInput').value.trim();
+      const resDiv = document.getElementById('proxyTestResult');
+      if (!input) return alert('Enter a proxy string.');
+
+      resDiv.innerHTML = 'Sending 5 HTTP requests through proxy... Please wait...';
+
+      const res = await fetch('/api/proxy/check-type', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ proxyInput: input })
+      });
+
+      const data = await res.json();
+      if (!data.success) {
+        resDiv.innerHTML = `<b style="color:#e74c3c;">Result: ${data.type}</b> (${data.reason || 'Failed'})`;
+        return;
+      }
+
+      const color = data.type === 'ROTATING' ? '#e67e22' : '#27ae60';
+      resDiv.innerHTML = `<b style="color:${color};">RESULT: ${data.type} PROXY</b> | Responded: ${data.successCount}/5 | Unique IPs: ${data.uniqueCount} | IPs: ${data.ips.join(', ')}`;
+    }
+
+    async function loadStaff() {
+      const res = await fetch('/api/staff');
+      const staffList = await res.json();
+      const container = document.getElementById('staffListContainer');
+      container.innerHTML = '';
+      staffList.forEach(name => {
+        container.innerHTML += `
+          <span class="staff-tag">
+            ${name}
+            <button onclick="removeStaff('${name}')" title="Remove staff name">✕</button>
+          </span>
+        `;
+      });
+    }
+
+    async function addStaff() {
+      const input = document.getElementById('newStaffName');
+      const name = input.value.trim();
+      if (!name) return alert('Enter a staff keyword or username.');
+
+      await fetch('/api/staff/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+
+      input.value = '';
+      loadStaff();
+    }
+
+    async function removeStaff(name) {
+      await fetch('/api/staff/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+      loadStaff();
+    }
+
     async function addSingleBot() {
       const username = document.getElementById('singleUser').value.trim();
       const password = document.getElementById('singlePass').value.trim();
@@ -170,6 +262,13 @@
       loadStatus();
     }
 
+    function getBadgeClass(type) {
+      if (type === 'STATIC') return 'badge-static';
+      if (type === 'ROTATING') return 'badge-rotating';
+      if (type === 'CHECKING...') return 'badge-checking';
+      return 'badge-dead';
+    }
+
     async function loadStatus() {
       const res = await fetch('/api/status');
       const bots = await res.json();
@@ -188,6 +287,7 @@
           <td>${bot.uptime}</td>
           <td>${bot.disconnects}/5</td>
           <td>${bot.proxy}</td>
+          <td><span class="badge ${getBadgeClass(bot.proxyType)}">${bot.proxyType}</span></td>
           <td><button class="danger small" onclick="stopBot('${bot.username}')">Disconnect</button></td>
         </tr>`;
         select.innerHTML += `<option value="${bot.username}" ${bot.username === currentSelected ? 'selected' : ''}>${bot.username}</option>`;
@@ -240,7 +340,6 @@
     }
 
     async function loadLogs() {
-      // Successful AFK
       const resAfk = await fetch('/api/success-afk');
       const afkData = await resAfk.json();
       const afkTable = document.getElementById('successAfkTable');
@@ -255,7 +354,6 @@
         </tr>`;
       });
 
-      // Proxy Down
       const resProxy = await fetch('/api/proxy-down');
       const proxyData = await resProxy.json();
       const proxyTable = document.getElementById('proxyDownTable');
@@ -272,7 +370,6 @@
         </tr>`;
       });
 
-      // Banned Bots
       const resBanned = await fetch('/api/banned-bots');
       const bannedData = await resBanned.json();
       const bannedTable = document.getElementById('bannedBotsTable');
@@ -293,6 +390,7 @@
     setInterval(loadStatus, 4000);
     setInterval(loadSystemConsole, 3000);
     setInterval(loadLogs, 10000);
+    loadStaff();
     loadStatus();
     loadLogs();
   </script>
