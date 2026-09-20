@@ -25,7 +25,6 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const activeBots = new Map();
 
-// Default staff list
 const DEFAULT_STAFF_LIST = [
   'henriks9', 'seeken', 'akyss', 'lupu_xx_x', 'ionutz547', 'andreibeni',
   'snaccks', 'gr_veteran', 'osmiumredox', 'bombita_01', 'ld007', 'space_turtle9',
@@ -104,10 +103,10 @@ async function checkProxyType5Req(proxyStr) {
     authPart = `${proxyConfig.userId}:${proxyConfig.password}@`;
   }
   const proxyUrl = `socks5://${authPart}${proxyConfig.host}:${proxyConfig.port}`;
-  
+
   let agent;
   try {
-    agent = new SocksProxyAgent(proxyUrl);
+    agent = new SocksProxyAgent(proxyUrl, { timeout: 8000 });
   } catch (e) {
     return { type: 'ERROR', ips: [], success: false, reason: 'Agent Creation Failed' };
   }
@@ -115,13 +114,13 @@ async function checkProxyType5Req(proxyStr) {
   const endpoint = 'https://api.ipify.org?format=json';
   const ips = [];
 
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 3; i++) {
     try {
       const res = await axios.get(endpoint, {
         httpAgent: agent,
         httpsAgent: agent,
         proxy: false,
-        timeout: 4000
+        timeout: 6000
       });
       if (res.data && res.data.ip) {
         ips.push(res.data.ip);
@@ -130,7 +129,7 @@ async function checkProxyType5Req(proxyStr) {
   }
 
   if (ips.length === 0) {
-    return { type: 'DEAD / OFFLINE', ips: [], success: false, reason: 'All 5 requests failed' };
+    return { type: 'UNCHECKED / RAW TCP ONLY', ips: [], success: false, reason: 'HTTP test failed but proxy port may be open' };
   }
 
   const uniqueIPs = new Set(ips);
@@ -148,26 +147,46 @@ async function checkProxyType5Req(proxyStr) {
 function checkProxyAlive(proxyConfig) {
   return new Promise((resolve) => {
     if (!proxyConfig) return resolve(true);
+
     const socket = new net.Socket();
-    socket.setTimeout(5000);
-    socket.on('connect', () => { socket.destroy(); resolve(true); });
-    socket.on('timeout', () => { socket.destroy(); resolve(false); });
-    socket.on('error', () => { socket.destroy(); resolve(false); });
+    socket.setTimeout(7000);
+
+    socket.on('connect', () => {
+      socket.destroy();
+      resolve(true);
+    });
+
+    socket.on('timeout', () => {
+      socket.destroy();
+      resolve(false);
+    });
+
+    socket.on('error', () => {
+      socket.destroy();
+      resolve(false);
+    });
+
     socket.connect(proxyConfig.port, proxyConfig.host);
   });
 }
 
-// FIX: Direct IP Resolution & Reliable SOCKS5 Connector
 function createSocksConnect(proxyConfig, targetHost, targetPort) {
   return (clientInstance) => {
-    dns.lookup(targetHost, (dnsErr, targetIp) => {
-      const destinationHost = dnsErr || !targetIp ? targetHost : targetIp;
+    dns.lookup(targetHost, { family: 4 }, (dnsErr, targetIp) => {
+      const destinationHost = (!dnsErr && targetIp) ? targetIp : targetHost;
 
       const options = {
-        proxy: { host: proxyConfig.host, port: proxyConfig.port, type: 5 },
+        proxy: {
+          host: proxyConfig.host,
+          port: proxyConfig.port,
+          type: 5
+        },
         command: 'connect',
-        destination: { host: destinationHost, port: targetPort },
-        timeout: 20000
+        destination: {
+          host: destinationHost,
+          port: targetPort
+        },
+        timeout: 25000
       };
 
       if (proxyConfig.userId && proxyConfig.password) {
@@ -265,10 +284,12 @@ function startBotInstance(options) {
     proxyType: proxyInput ? 'UNKNOWN' : 'DIRECT',
     moveTimeout: null,
     moveDurationTimeout: null,
+    isDisconnecting: false,
     options
   };
 
   instanceData.options = { ...options, accumulatedUptime: instanceData.accumulatedUptime };
+  instanceData.isDisconnecting = false;
 
   let bot;
   try {
@@ -283,6 +304,7 @@ function startBotInstance(options) {
 
   bot.once('spawn', () => {
     instanceData.sessionStart = Date.now();
+    instanceData.disconnectCount = 0;
     logSystemMessage(instanceData, 'STATUS: Bot successfully spawned in game.');
 
     if (password) {
@@ -319,12 +341,13 @@ function startBotInstance(options) {
     handleBotDisconnect(options, instanceData, `Kicked: ${reasonStr}`);
   });
 
-  const onEndOrError = (err) => {
+  bot.on('error', (err) => {
     handleBotDisconnect(options, instanceData, formatErrorMsg(err));
-  };
+  });
 
-  bot.on('error', onEndOrError);
-  bot.on('end', onEndOrError);
+  bot.on('end', (reason) => {
+    handleBotDisconnect(options, instanceData, formatErrorMsg(reason));
+  });
 }
 
 function clearMovementTimers(instanceData) {
@@ -338,7 +361,7 @@ function disconnectAndReconnectForStaff(options, instanceData) {
     instanceData.accumulatedUptime += (Date.now() - instanceData.sessionStart);
     instanceData.sessionStart = null;
   }
-  
+
   if (instanceData.bot) {
     try { instanceData.bot.quit(); } catch (e) {}
     instanceData.bot = null;
@@ -355,6 +378,9 @@ function disconnectAndReconnectForStaff(options, instanceData) {
 }
 
 async function handleBotDisconnect(options, instanceData, rawError) {
+  if (instanceData.isDisconnecting) return;
+  instanceData.isDisconnecting = true;
+
   const { username, proxyInput } = options;
   const errorMsg = formatErrorMsg(rawError);
 
@@ -383,19 +409,19 @@ async function handleBotDisconnect(options, instanceData, rawError) {
   logSystemMessage(instanceData, `DISCONNECT ATTEMPT #${instanceData.disconnectCount}: ${errorMsg}`);
 
   if (instanceData.disconnectCount >= 5) {
-    logSystemMessage(instanceData, 'SYSTEM: 5 disconnects reached. Verifying proxy health & network connectivity...');
-    
-    if (proxyInput) {
-      const typeRes = await checkProxyType5Req(proxyInput);
-      instanceData.proxyType = typeRes.type;
-      logSystemMessage(instanceData, `PROXY CHECK (5 Reqs): Type is ${typeRes.type} (${typeRes.successCount}/5 successful IPs: ${typeRes.ips.join(', ')})`);
-    }
+    logSystemMessage(instanceData, 'SYSTEM: 5 disconnects reached. Verifying proxy health...');
 
     const proxyConfig = parseProxy(proxyInput);
     const isProxyAlive = await checkProxyAlive(proxyConfig);
 
+    if (proxyInput) {
+      const typeRes = await checkProxyType5Req(proxyInput);
+      instanceData.proxyType = typeRes.type;
+      logSystemMessage(instanceData, `PROXY CHECK: Status is ${typeRes.type}`);
+    }
+
     if (!isProxyAlive) {
-      logSystemMessage(instanceData, 'SYSTEM: Proxy check FAILED (DEAD / NO NETWORK). Moving bot to Proxy Down section.');
+      logSystemMessage(instanceData, 'SYSTEM: Proxy check FAILED (DEAD / NO TCP CONNECTION). Moving bot to Proxy Down section.');
       activeBots.delete(username);
       const downDb = readDb(PROXY_DOWN_FILE);
       downDb[username] = {
@@ -409,7 +435,7 @@ async function handleBotDisconnect(options, instanceData, rawError) {
       writeDb(PROXY_DOWN_FILE, downDb);
       return;
     } else {
-      logSystemMessage(instanceData, 'SYSTEM: Proxy is ALIVE and has network access. Resetting disconnect counter from 5 to 0. Reconnecting...');
+      logSystemMessage(instanceData, 'SYSTEM: Proxy TCP Port is ALIVE. Resetting disconnect counter from 5 to 0.');
       instanceData.disconnectCount = 0;
     }
   }
@@ -475,7 +501,6 @@ app.post('/api/bots/add-single', (req, res) => {
   res.json({ success: true, message: `Started bot ${username}` });
 });
 
-// BULK ACCOUNT LAUNCH WITH 5-SECOND STAGGERED DELAY
 app.post('/api/bots/add-bulk', (req, res) => {
   const { bots } = req.body;
   if (!Array.isArray(bots)) return res.status(400).json({ error: 'Invalid input' });
