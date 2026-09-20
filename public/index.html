@@ -1,177 +1,370 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sleepy Client - AFK Panel</title>
-    <script src="/socket.io/socket.io.js"></script>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0f172a; color: #f8fafc; padding: 20px; }
-        h1 { color: #38bdf8; margin-bottom: 20px; text-align: center; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 20px; }
-        .card { background: #1e293b; padding: 15px; border-radius: 8px; border: 1px solid #334155; }
-        .card h2 { font-size: 1.1rem; color: #94a3b8; margin-bottom: 10px; border-bottom: 1px solid #334155; padding-bottom: 5px; }
-        input, select, button { width: 100%; padding: 10px; margin: 5px 0 10px; background: #0f172a; border: 1px solid #334155; color: #fff; border-radius: 4px; }
-        button { background: #0284c7; cursor: pointer; font-weight: bold; border: none; }
-        button:hover { background: #0369a1; }
-        .log-box { background: #020617; border: 1px solid #334155; height: 180px; overflow-y: auto; padding: 10px; font-family: monospace; font-size: 0.85rem; color: #4ade80; border-radius: 4px; }
-        .bot-item { background: #0f172a; padding: 8px; border-radius: 4px; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center; border-left: 3px solid #0284c7; }
-        .stats-val { font-size: 1.2rem; font-weight: bold; color: #38bdf8; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dark AFK Bot Manager</title>
+  <style>
+    :root {
+      --bg-color: #0f111a;
+      --card-bg: #1a1d2e;
+      --accent: #7289da;
+      --danger: #e74c3c;
+      --success: #2ecc71;
+      --text: #ffffff;
+      --text-dim: #a0a0a0;
+      --border: #2a2d42;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--text);
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    .full-width {
+      grid-column: 1 / -1;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+    }
+
+    h2 {
+      margin-top: 0;
+      font-size: 1.2rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 10px;
+      color: var(--accent);
+    }
+
+    .form-group {
+      margin-bottom: 12px;
+    }
+
+    label {
+      display: block;
+      font-size: 0.85rem;
+      color: var(--text-dim);
+      margin-bottom: 4px;
+    }
+
+    input, select, button {
+      width: 100%;
+      padding: 10px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      background: #0d0e15;
+      color: #fff;
+      box-sizing: border-box;
+    }
+
+    button {
+      background: var(--accent);
+      border: none;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background 0.2s;
+      margin-top: 5px;
+    }
+
+    button:hover {
+      opacity: 0.9;
+    }
+
+    button.danger {
+      background: var(--danger);
+    }
+
+    .tag-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .tag {
+      background: #25283d;
+      border: 1px solid var(--border);
+      padding: 5px 10px;
+      border-radius: 15px;
+      font-size: 0.85rem;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .tag span.remove-btn {
+      color: var(--danger);
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    .flex-row {
+      display: flex;
+      gap: 10px;
+    }
+
+    .result-box {
+      margin-top: 10px;
+      padding: 10px;
+      background: #0d0e15;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 0.85rem;
+    }
+
+    .badge-sticky {
+      color: var(--success);
+      font-weight: bold;
+    }
+
+    .badge-rotating {
+      color: #f39c12;
+      font-weight: bold;
+    }
+
+    .badge-dead {
+      color: var(--danger);
+      font-weight: bold;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+
+    th, td {
+      padding: 8px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.9rem;
+    }
+
+    th {
+      color: var(--text-dim);
+    }
+  </style>
 </head>
 <body>
 
-    <h1>Sleepy Client Dashboard</h1>
-
-    <div class="grid">
-        <!-- System Stats -->
-        <div class="card">
-            <h2>System Health</h2>
-            <p>CPU Load: <span id="cpu-stat" class="stats-val">0%</span></p>
-            <p>RAM Usage: <span id="ram-stat" class="stats-val">0%</span></p>
-        </div>
-
-        <!-- Deploy Bot -->
-        <div class="card">
-            <h2>Deploy New Bot</h2>
-            <input type="text" id="username" placeholder="Bot Username (Optional)">
-            <input type="password" id="password" placeholder="Password (Optional)">
-            <select id="auth">
-                <option value="offline">Offline / Cracker</option>
-                <option value="microsoft">Microsoft Auth</option>
-            </select>
-            <input type="text" id="proxy" placeholder="Proxy (IP:Port)">
-            <button onclick="deployBot()">Deploy Bot</button>
-        </div>
-
-        <!-- Global Control -->
-        <div class="card">
-            <h2>Global Commands</h2>
-            <input type="text" id="globalCmd" placeholder="/afk, /say Hello">
-            <button onclick="sendGlobalCommand()">Execute Across All Bots</button>
-        </div>
+  <div class="container">
+    <div class="full-width">
+      <h1>Dark AFK Dashboard</h1>
     </div>
 
-    <div class="grid">
-        <!-- Active Bots -->
-        <div class="card">
-            <h2>Active Bots</h2>
-            <div id="active-bots-list">No bots active.</div>
-        </div>
-
-        <!-- Proxy Down Queue -->
-        <div class="card">
-            <h2>Proxy Down Queue</h2>
-            <div id="proxy-down-list">No failed proxies.</div>
-            <div id="revive-controls" style="display:none; margin-top: 10px;">
-                <input type="text" id="newProxy" placeholder="New Proxy (IP:Port)">
-                <button onclick="reviveBots()">Revive Selected Bots</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Live System Logs -->
+    <!-- Staff Evasion Card -->
     <div class="card">
-        <h2>Live System Logs</h2>
-        <div class="log-box" id="sys-logs"></div>
+      <h2>🛡️ Staff Evasion List</h2>
+      <p style="font-size: 0.8rem; color: var(--text-dim);">Bots automatically quit if any player matching these keywords joins the server.</p>
+      
+      <div class="flex-row">
+        <input type="text" id="newStaffInput" placeholder="Username or keyword (e.g. henriks9)">
+        <button onclick="addStaff()" style="width: 120px;">Add Staff</button>
+      </div>
+
+      <div class="tag-container" id="staffTagList">
+        <!-- Dynamic Staff Tags -->
+      </div>
     </div>
 
-    <script>
-        const socket = io();
+    <!-- Proxy Checker Card -->
+    <div class="card">
+      <h2>🌐 SOCKS5 Proxy Checker</h2>
+      <div class="form-group">
+        <label>Proxy String (host:port or host:port:user:pass)</label>
+        <input type="text" id="proxyCheckerInput" placeholder="127.0.0.1:1080:user:pass">
+      </div>
+      <button onclick="checkProxy()">Send 5 Requests & Check</button>
+      <div id="proxyCheckResult" class="result-box" style="display: none;"></div>
+    </div>
 
-        // Stats listener
-        socket.on('sys_stats', data => {
-            document.getElementById('cpu-stat').innerText = `${data.cpu}%`;
-            document.getElementById('ram-stat').innerText = `${data.ram}%`;
+    <!-- Active Bots Card -->
+    <div class="card full-width">
+      <h2>🤖 Active Bots Status</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Username</th>
+            <th>Server</th>
+            <th>Uptime</th>
+            <th>Health / Food</th>
+            <th>Proxy Host</th>
+            <th>HFFA</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="activeBotsTable">
+          <!-- Active bots dynamic render -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    // --- Staff Management Functions ---
+
+    async function loadStaffList() {
+      try {
+        const res = await fetch('/api/staff');
+        const data = await res.json();
+        const container = document.getElementById('staffTagList');
+        container.innerHTML = '';
+
+        data.staff.forEach(name => {
+          const tag = document.createElement('div');
+          tag.className = 'tag';
+          tag.innerHTML = `
+            <span>${name}</span>
+            <span class="remove-btn" onclick="removeStaff('${name}')">&times;</span>
+          `;
+          container.appendChild(tag);
         });
+      } catch (err) {
+        console.error('Failed to load staff list:', err);
+      }
+    }
 
-        // Logs listener
-        socket.on('sys_log', msg => {
-            const logs = document.getElementById('sys-logs');
-            const entry = document.createElement('div');
-            entry.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
-            logs.appendChild(entry);
-            logs.scrollTop = logs.scrollHeight;
+    async function addStaff() {
+      const input = document.getElementById('newStaffInput');
+      const username = input.value.trim();
+      if (!username) return;
+
+      try {
+        const res = await fetch('/api/staff/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username })
         });
+        const data = await res.json();
+        if (data.error) {
+          alert(data.error);
+        } else {
+          input.value = '';
+          loadStaffList();
+        }
+      } catch (err) {
+        alert('Failed to add staff member');
+      }
+    }
 
-        // Active Bots render
-        socket.on('update_bots', bots => {
-            const list = document.getElementById('active-bots-list');
-            if (bots.length === 0) {
-                list.innerHTML = 'No bots active.';
-                return;
-            }
-            list.innerHTML = bots.map(b => `
-                <div class="bot-item">
-                    <div>
-                        <strong>${b.username}</strong>
-                        <div style="font-size:0.75rem; color:#94a3b8;">${b.status}</div>
-                    </div>
-                    <div>${formatUptime(b.uptime)}</div>
-                </div>
-            `).join('');
+    async function removeStaff(username) {
+      try {
+        const res = await fetch('/api/staff/remove', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username })
         });
+        const data = await res.json();
+        if (data.error) {
+          alert(data.error);
+        } else {
+          loadStaffList();
+        }
+      } catch (err) {
+        alert('Failed to remove staff member');
+      }
+    }
 
-        // Proxy Down render
-        socket.on('update_proxy_down', bots => {
-            const list = document.getElementById('proxy-down-list');
-            const reviveControls = document.getElementById('revive-controls');
-            if (bots.length === 0) {
-                list.innerHTML = 'No failed proxies.';
-                reviveControls.style.display = 'none';
-                return;
-            }
-            reviveControls.style.display = 'block';
-            list.innerHTML = bots.map(b => `
-                <div class="bot-item" style="border-left-color: #ef4444;">
-                    <div>
-                        <input type="checkbox" class="revive-checkbox" value="${b.id}" checked>
-                        <strong>${b.username}</strong>
-                    </div>
-                    <div>${formatUptime(b.uptime)}</div>
-                </div>
-            `).join('');
+    // --- Proxy Checker Function ---
+
+    async function checkProxy() {
+      const proxy = document.getElementById('proxyCheckerInput').value.trim();
+      const resultBox = document.getElementById('proxyCheckResult');
+
+      if (!proxy) return alert('Enter a proxy string first!');
+
+      resultBox.style.display = 'block';
+      resultBox.innerHTML = 'Testing proxy with 5 consecutive requests...';
+
+      try {
+        const res = await fetch('/api/check-proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ proxy })
         });
+        const data = await res.json();
 
-        function deployBot() {
-            const username = document.getElementById('username').value;
-            const password = document.getElementById('password').value;
-            const auth = document.getElementById('auth').value;
-            const proxyStr = document.getElementById('proxy').value;
-
-            socket.emit('deploy', { username, password, auth, proxyStr });
-            document.getElementById('username').value = '';
-            document.getElementById('password').value = '';
-            document.getElementById('proxy').value = '';
+        if (!data.success) {
+          resultBox.innerHTML = `<span class="badge-dead">DEAD / FAILED</span><br>${data.message}`;
+          return;
         }
 
-        function sendGlobalCommand() {
-            const cmd = document.getElementById('globalCmd').value;
-            if (cmd) {
-                socket.emit('global_command', cmd);
-                document.getElementById('globalCmd').value = '';
-            }
+        const badge = data.type === 'sticky' 
+          ? '<span class="badge-sticky">STICKY PROXY</span>' 
+          : '<span class="badge-rotating">ROTATING PROXY</span>';
+
+        let html = `${badge}<br><br><b>5 Request Endpoint IPs:</b><br>`;
+        data.endpointIps.forEach((ip, idx) => {
+          html += `Request ${idx + 1}: ${ip}<br>`;
+        });
+
+        resultBox.innerHTML = html;
+      } catch (err) {
+        resultBox.innerHTML = '<span class="badge-dead">Error checking proxy.</span>';
+      }
+    }
+
+    // --- Active Bots Fetch ---
+
+    async function loadBotStatus() {
+      try {
+        const res = await fetch('/api/status');
+        const bots = await res.json();
+        const tbody = document.getElementById('activeBotsTable');
+        tbody.innerHTML = '';
+
+        if (bots.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color: var(--text-dim);">No active bots connected.</td></tr>';
+          return;
         }
 
-        function reviveBots() {
-            const checkboxes = document.querySelectorAll('.revive-checkbox:checked');
-            const ids = Array.from(checkboxes).map(cb => cb.value);
-            const newProxy = document.getElementById('newProxy').value;
+        bots.forEach(bot => {
+          const row = document.createElement('tr');
+          row.innerHTML = `
+            <td><b>${bot.username}</b></td>
+            <td>${bot.host}</td>
+            <td>${bot.activeUptime}</td>
+            <td>❤️ ${bot.health} / 🍗 ${bot.food}</td>
+            <td>${bot.proxy}</td>
+            <td>${bot.hffaActive ? 'Yes' : 'No'}</td>
+            <td><button class="danger" onclick="stopBot('${bot.username}')" style="padding: 4px 8px; font-size: 0.8rem;">Disconnect</button></td>
+          `;
+          tbody.appendChild(row);
+        });
+      } catch (err) {
+        console.error('Error fetching bot status:', err);
+      }
+    }
 
-            if (ids.length > 0 && newProxy) {
-                socket.emit('revive_bots', { ids, newProxy });
-                document.getElementById('newProxy').value = '';
-            }
-        }
+    async function stopBot(username) {
+      await fetch('/api/bots/stop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username })
+      });
+      loadBotStatus();
+    }
 
-        function formatUptime(ms) {
-            const totalSec = Math.floor(ms / 1000);
-            const hrs = Math.floor(totalSec / 3600);
-            const mins = Math.floor((totalSec % 3600) / 60);
-            const secs = totalSec % 60;
-            return `${hrs}h ${mins}m ${secs}s`;
-        }
-    </script>
+    // Initial Load & Auto Refresh
+    loadStaffList();
+    loadBotStatus();
+    setInterval(loadBotStatus, 5000);
+  </script>
 </body>
 </html>
