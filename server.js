@@ -39,7 +39,9 @@ function writeDb(filePath, data) {
 function getStaffList() {
   const defaultStaff = ['staff', 'admin', 'mod', 'helper', 'owner', 'henriks9'];
   try {
-    if (fs.existsSync(STAFF_FILE)) return JSON.parse(fs.readFileSync(STAFF_FILE, 'utf8'));
+    if (fs.existsSync(STAFF_FILE)) {
+      return JSON.parse(fs.readFileSync(STAFF_FILE, 'utf8'));
+    }
     fs.writeFileSync(STAFF_FILE, JSON.stringify(defaultStaff, null, 2));
     return defaultStaff;
   } catch (err) {
@@ -47,10 +49,17 @@ function getStaffList() {
   }
 }
 
+function saveStaffList(list) {
+  try {
+    fs.writeFileSync(STAFF_FILE, JSON.stringify(list, null, 2));
+  } catch (err) {}
+}
+
 function checkIsStaff(username) {
   if (!username) return false;
   const lower = username.toLowerCase();
-  return getStaffList().some((kw) => lower.includes(kw.toLowerCase()));
+  const staffList = getStaffList();
+  return staffList.some((kw) => lower.includes(kw.toLowerCase()));
 }
 
 function parseProxy(proxyStr) {
@@ -197,8 +206,8 @@ function startBotInstance(options) {
 
     bot.on('playerJoined', (player) => {
       if (player && checkIsStaff(player.username)) {
-        logSystemMessage(instanceData, `STAFF DETECTION: Staff member '${player.username}' detected! Disconnecting immediately.`);
-        safelyDisconnectBot(username, 'Staff detected');
+        logSystemMessage(instanceData, `STAFF DETECTION: Staff member '${player.username}' detected! Disconnecting for 15 seconds...`);
+        disconnectAndReconnectForStaff(options, instanceData);
       }
     });
   });
@@ -235,6 +244,28 @@ function clearMovementTimers(instanceData) {
   if (instanceData.moveDurationTimeout) clearTimeout(instanceData.moveDurationTimeout);
 }
 
+function disconnectAndReconnectForStaff(options, instanceData) {
+  clearMovementTimers(instanceData);
+  if (instanceData.sessionStart) {
+    instanceData.accumulatedUptime += (Date.now() - instanceData.sessionStart);
+    instanceData.sessionStart = null;
+  }
+  
+  if (instanceData.bot) {
+    try { instanceData.bot.quit(); } catch (e) {}
+    instanceData.bot = null;
+  }
+
+  logSystemMessage(instanceData, 'STAFF PROTECTION: Disconnected. Waiting 15 seconds to reconnect...');
+
+  setTimeout(() => {
+    if (activeBots.has(options.username)) {
+      logSystemMessage(instanceData, 'STAFF PROTECTION: 15 seconds elapsed. Reconnecting bot now...');
+      startBotInstance(options);
+    }
+  }, 15000);
+}
+
 async function handleBotDisconnect(options, instanceData, errorMsg) {
   const { username, proxyInput } = options;
 
@@ -246,7 +277,6 @@ async function handleBotDisconnect(options, instanceData, errorMsg) {
     instanceData.options.accumulatedUptime = instanceData.accumulatedUptime;
   }
 
-  // Save to Successful AFK if accumulated uptime reaches >= 20 Hours 1 Minute
   if (instanceData.accumulatedUptime >= SUCCESS_AFK_THRESHOLD_MS) {
     const afkDb = readDb(SUCCESS_AFK_FILE);
     afkDb[username] = {
@@ -311,6 +341,31 @@ function safelyDisconnectBot(username, reason) {
 }
 
 // REST ENDPOINTS
+app.get('/api/staff', (req, res) => {
+  res.json(getStaffList());
+});
+
+app.post('/api/staff/add', (req, res) => {
+  const { name } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Staff name required' });
+  const list = getStaffList();
+  const trimmed = name.trim().toLowerCase();
+  if (!list.includes(trimmed)) {
+    list.push(trimmed);
+    saveStaffList(list);
+  }
+  res.json({ success: true, list });
+});
+
+app.post('/api/staff/remove', (req, res) => {
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ error: 'Staff name required' });
+  let list = getStaffList();
+  list = list.filter((item) => item.toLowerCase() !== name.toLowerCase());
+  saveStaffList(list);
+  res.json({ success: true, list });
+});
+
 app.post('/api/bots/add-single', (req, res) => {
   const { username, password, proxyInput, host, port, mcVersion } = req.body;
   if (!username) return res.status(400).json({ error: 'Username is required' });
@@ -408,4 +463,4 @@ app.delete('/api/banned-bots/:username', (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
-                      
+  
