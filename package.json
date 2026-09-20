@@ -1,22 +1,16 @@
 {
-  "name": "gamster-afk",
+  "name": "dark-afk-server",
   "version": "1.0.0",
-  "description": "24/7 Minecraft AFK Panel",
+  "description": "Minecraft AFK Bot Manager with Proxy Checker, Staff Evasion, and Revival Queue",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
-  "engines": {
-    "node": ">=18.0.0"
-  },
   "dependencies": {
-    "axios": "^1.6.0",
-    "express": "^4.18.2",
-    "https-proxy-agent": "^7.0.0",
+    "axios": "^1.7.2",
+    "express": "^4.19.2",
     "mineflayer": "^4.20.1",
-    "socket.io": "^4.7.2",
-    "socks": "^2.8.1",
-    "systeminformation": "^5.21.0",
-    "uuid": "^9.0.1"
+    "socks": "^2.8.3",
+    "socks-proxy-agent": "^8.0.3"
   }
 }
