@@ -94,6 +94,7 @@ function formatErrorMsg(err) {
   }
 }
 
+// Independent proxy checker used specifically by the request endpoint
 async function checkProxyType5Req(proxyStr) {
   const proxyConfig = parseProxy(proxyStr);
   if (!proxyConfig) return { type: 'DIRECT', ips: [], success: false, reason: 'Invalid or No Proxy Format' };
@@ -144,6 +145,7 @@ async function checkProxyType5Req(proxyStr) {
   };
 }
 
+// Direct TCP connectivity check used for bot diagnostic checks
 function checkProxyAlive(proxyConfig) {
   return new Promise((resolve) => {
     if (!proxyConfig) return resolve(true);
@@ -196,10 +198,17 @@ function createSocksConnect(proxyConfig, targetHost, targetPort) {
 
       SocksClient.createConnection(options)
         .then((info) => {
-          info.socket.on('error', (err) => {
+          const socket = info.socket;
+          
+          // Socket tuning to prevent silent socketClosed drops
+          socket.setKeepAlive(true, 10000);
+          socket.setNoDelay(true);
+
+          socket.on('error', (err) => {
             clientInstance.emit('error', new Error(`Proxy Socket Error: ${formatErrorMsg(err)}`));
           });
-          clientInstance.setSocket(info.socket);
+
+          clientInstance.setSocket(socket);
           clientInstance.emit('connect');
         })
         .catch((err) => {
@@ -268,7 +277,8 @@ function startBotInstance(options) {
     port: targetPort,
     username,
     version: mcVersion || '1.8.9',
-    viewDistance: 16
+    viewDistance: 16,
+    checkTimeoutInterval: 45000
   };
 
   if (proxyConfig) {
@@ -308,15 +318,15 @@ function startBotInstance(options) {
     logSystemMessage(instanceData, 'STATUS: Bot successfully spawned in game.');
 
     if (password) {
-      setTimeout(() => bot?.chat(`/register ${password} ${password}`), 1500);
-      setTimeout(() => bot?.chat(`/login ${password}`), 3500);
+      setTimeout(() => bot?.chat(`/register ${password} ${password}`), 2000);
+      setTimeout(() => bot?.chat(`/login ${password}`), 4500);
     }
 
     startHumanMovementRoutine(bot, instanceData);
 
     bot.on('playerJoined', (player) => {
       if (player && player.username && checkIsStaff(player.username)) {
-        logSystemMessage(instanceData, `STAFF TAB DETECTED: Staff '${player.username}' joined tab list! Disconnecting for 15s...`);
+        logSystemMessage(instanceData, `STAFF TAB DETECTED: Staff '${player.username}' joined tab list! Disconnecting for 20s...`);
         disconnectAndReconnectForStaff(options, instanceData);
       }
     });
@@ -367,14 +377,14 @@ function disconnectAndReconnectForStaff(options, instanceData) {
     instanceData.bot = null;
   }
 
-  logSystemMessage(instanceData, 'STAFF PROTECTION: Disconnected. Waiting 15 seconds to reconnect...');
+  logSystemMessage(instanceData, 'STAFF PROTECTION: Disconnected. Waiting 20 seconds to reconnect...');
 
   setTimeout(() => {
     if (activeBots.has(options.username)) {
-      logSystemMessage(instanceData, 'STAFF PROTECTION: 15 seconds elapsed. Reconnecting bot now...');
+      logSystemMessage(instanceData, 'STAFF PROTECTION: 20 seconds elapsed. Reconnecting bot now...');
       startBotInstance(options);
     }
-  }, 15000);
+  }, 20000);
 }
 
 async function handleBotDisconnect(options, instanceData, rawError) {
@@ -409,19 +419,13 @@ async function handleBotDisconnect(options, instanceData, rawError) {
   logSystemMessage(instanceData, `DISCONNECT ATTEMPT #${instanceData.disconnectCount}: ${errorMsg}`);
 
   if (instanceData.disconnectCount >= 5) {
-    logSystemMessage(instanceData, 'SYSTEM: 5 disconnects reached. Verifying proxy health...');
+    logSystemMessage(instanceData, 'SYSTEM: 5 disconnects reached. Checking TCP connection to proxy...');
 
     const proxyConfig = parseProxy(proxyInput);
     const isProxyAlive = await checkProxyAlive(proxyConfig);
 
-    if (proxyInput) {
-      const typeRes = await checkProxyType5Req(proxyInput);
-      instanceData.proxyType = typeRes.type;
-      logSystemMessage(instanceData, `PROXY CHECK: Status is ${typeRes.type}`);
-    }
-
     if (!isProxyAlive) {
-      logSystemMessage(instanceData, 'SYSTEM: Proxy check FAILED (DEAD / NO TCP CONNECTION). Moving bot to Proxy Down section.');
+      logSystemMessage(instanceData, 'SYSTEM: Proxy TCP check FAILED (DEAD). Moving bot to Proxy Down list.');
       activeBots.delete(username);
       const downDb = readDb(PROXY_DOWN_FILE);
       downDb[username] = {
@@ -435,16 +439,22 @@ async function handleBotDisconnect(options, instanceData, rawError) {
       writeDb(PROXY_DOWN_FILE, downDb);
       return;
     } else {
-      logSystemMessage(instanceData, 'SYSTEM: Proxy TCP Port is ALIVE. Resetting disconnect counter from 5 to 0.');
+      logSystemMessage(instanceData, 'SYSTEM: Proxy TCP Port is ALIVE. Resetting disconnect counter.');
       instanceData.disconnectCount = 0;
     }
   }
+
+  // Backoff reconnect delay to bypass server rate limits ("logging in too fast")
+  const baseDelay = 15000;
+  const backoffDelay = baseDelay + Math.min(instanceData.disconnectCount * 3000, 15000) + Math.floor(Math.random() * 3000);
+
+  logSystemMessage(instanceData, `SYSTEM: Cooldown active. Reconnecting in ${Math.round(backoffDelay / 1000)}s...`);
 
   setTimeout(() => {
     if (activeBots.has(username)) {
       startBotInstance(options);
     }
-  }, 10000);
+  }, backoffDelay);
 }
 
 function safelyDisconnectBot(username, reason) {
@@ -601,3 +611,4 @@ app.delete('/api/banned-bots/:username', (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
+    
