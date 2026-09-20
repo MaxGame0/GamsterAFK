@@ -165,7 +165,7 @@ function createSocksConnect(proxyConfig, targetHost, targetPort) {
       proxy: { host: proxyConfig.host, port: proxyConfig.port, type: 5 },
       command: 'connect',
       destination: { host: targetHost, port: targetPort },
-      timeout: 15000
+      timeout: 30000 // Extended timeout to handle slower proxy handshakes
     };
     if (proxyConfig.userId && proxyConfig.password) {
       options.proxy.userId = proxyConfig.userId;
@@ -173,6 +173,9 @@ function createSocksConnect(proxyConfig, targetHost, targetPort) {
     }
     SocksClient.createConnection(options)
       .then((info) => {
+        info.socket.on('error', (err) => {
+          clientInstance.emit('error', new Error(`Socket Error: ${formatErrorMsg(err)}`));
+        });
         clientInstance.setSocket(info.socket);
         clientInstance.emit('connect');
       })
@@ -398,7 +401,6 @@ async function handleBotDisconnect(options, instanceData, rawError) {
       writeDb(PROXY_DOWN_FILE, downDb);
       return;
     } else {
-      // PROXY IS ALIVE AND HAS NETWORK -> RESET COUNTER TO 0
       logSystemMessage(instanceData, 'SYSTEM: Proxy is ALIVE and has network access. Resetting disconnect counter from 5 to 0. Reconnecting...');
       instanceData.disconnectCount = 0;
     }
@@ -465,13 +467,20 @@ app.post('/api/bots/add-single', (req, res) => {
   res.json({ success: true, message: `Started bot ${username}` });
 });
 
+// BULK ACCOUNT LAUNCH WITH 5-SECOND STAGGERED DELAY
 app.post('/api/bots/add-bulk', (req, res) => {
   const { bots } = req.body;
   if (!Array.isArray(bots)) return res.status(400).json({ error: 'Invalid input' });
-  bots.forEach((item) => {
-    if (item.username) startBotInstance({ ...item, accumulatedUptime: 0 });
+
+  bots.forEach((item, index) => {
+    if (item.username) {
+      setTimeout(() => {
+        startBotInstance({ ...item, accumulatedUptime: 0 });
+      }, index * 5000); // Waits 5000ms (5s) per account
+    }
   });
-  res.json({ success: true, message: `Started ${bots.length} bots.` });
+
+  res.json({ success: true, message: `Queued ${bots.length} bots with a 5-second join delay between each.` });
 });
 
 app.post('/api/bots/stop', (req, res) => {
@@ -510,7 +519,7 @@ app.post('/api/proxy-down/revive-bulk', (req, res) => {
   const downDb = readDb(PROXY_DOWN_FILE);
   const reconnectedBots = [];
 
-  usernames.forEach((username) => {
+  usernames.forEach((username, index) => {
     if (downDb[username]) {
       const botData = downDb[username];
       delete downDb[username];
@@ -521,7 +530,10 @@ app.post('/api/proxy-down/revive-bulk', (req, res) => {
         accumulatedUptime: botData.accumulatedUptime || 0
       };
 
-      startBotInstance(updatedOptions);
+      setTimeout(() => {
+        startBotInstance(updatedOptions);
+      }, index * 5000);
+
       reconnectedBots.push(username);
     }
   });
@@ -556,4 +568,4 @@ app.delete('/api/banned-bots/:username', (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
-          
+    
