@@ -24,7 +24,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const activeBots = new Map();
 
-// Default staff list provided by user
+// Default staff list
 const DEFAULT_STAFF_LIST = [
   'henriks9', 'seeken', 'akyss', 'lupu_xx_x', 'ionutz547', 'andreibeni',
   'snaccks', 'gr_veteran', 'osmiumredox', 'bombita_01', 'ld007', 'space_turtle9',
@@ -81,6 +81,18 @@ function parseProxy(proxyStr) {
     return { host: parts[0], port: parseInt(parts[1], 10) };
   }
   return null;
+}
+
+// Safely format error messages so they never print as undefined
+function formatErrorMsg(err) {
+  if (!err) return 'Connection closed / Socket ended';
+  if (typeof err === 'string') return err;
+  if (err.message) return err.message;
+  try {
+    return JSON.stringify(err);
+  } catch (e) {
+    return 'Unknown connection error';
+  }
 }
 
 // 5-Request Proxy Type Checker Function
@@ -165,7 +177,7 @@ function createSocksConnect(proxyConfig, targetHost, targetPort) {
         clientInstance.emit('connect');
       })
       .catch((err) => {
-        clientInstance.emit('error', new Error(`SOCKS5 Error: ${err.message}`));
+        clientInstance.emit('error', new Error(`SOCKS5 Error: ${formatErrorMsg(err)}`));
       });
   };
 }
@@ -237,7 +249,7 @@ function startBotInstance(options) {
     sessionStart: null,
     disconnectCount: 0,
     systemLogs: [],
-    proxyType: 'CHECKING...',
+    proxyType: proxyInput ? 'UNKNOWN' : 'DIRECT',
     moveTimeout: null,
     moveDurationTimeout: null,
     options
@@ -245,20 +257,11 @@ function startBotInstance(options) {
 
   instanceData.options = { ...options, accumulatedUptime: instanceData.accumulatedUptime };
 
-  if (proxyInput) {
-    checkProxyType5Req(proxyInput).then(res => {
-      instanceData.proxyType = res.type;
-      logSystemMessage(instanceData, `PROXY CHECK (5 Reqs): Type is ${res.type} (${res.successCount}/5 successful IPs: ${res.ips.join(', ')})`);
-    });
-  } else {
-    instanceData.proxyType = 'DIRECT';
-  }
-
   let bot;
   try {
     bot = mineflayer.createBot(botOpts);
   } catch (err) {
-    handleBotDisconnect(options, instanceData, err.message);
+    handleBotDisconnect(options, instanceData, formatErrorMsg(err));
     return;
   }
 
@@ -286,7 +289,7 @@ function startBotInstance(options) {
   });
 
   bot.on('kicked', (reason) => {
-    const reasonStr = typeof reason === 'string' ? reason : JSON.stringify(reason);
+    const reasonStr = formatErrorMsg(reason);
     if (reasonStr.toLowerCase().includes('ban') || reasonStr.toLowerCase().includes('blacklisted')) {
       const bannedDb = readDb(BANNED_BOTS_FILE);
       bannedDb[username] = {
@@ -305,7 +308,7 @@ function startBotInstance(options) {
   });
 
   const onEndOrError = (err) => {
-    handleBotDisconnect(options, instanceData, err ? err.message : 'Connection dropped');
+    handleBotDisconnect(options, instanceData, formatErrorMsg(err));
   };
 
   bot.on('error', onEndOrError);
@@ -339,8 +342,9 @@ function disconnectAndReconnectForStaff(options, instanceData) {
   }, 15000);
 }
 
-async function handleBotDisconnect(options, instanceData, errorMsg) {
+async function handleBotDisconnect(options, instanceData, rawError) {
   const { username, proxyInput } = options;
+  const errorMsg = formatErrorMsg(rawError);
 
   clearMovementTimers(instanceData);
 
@@ -369,6 +373,13 @@ async function handleBotDisconnect(options, instanceData, errorMsg) {
   // ONLY CHECK PROXY WHEN 5 DISCONNECTS ARE REACHED
   if (instanceData.disconnectCount >= 5) {
     logSystemMessage(instanceData, 'SYSTEM: 5 disconnects reached. Verifying proxy health & network connectivity...');
+    
+    if (proxyInput) {
+      const typeRes = await checkProxyType5Req(proxyInput);
+      instanceData.proxyType = typeRes.type;
+      logSystemMessage(instanceData, `PROXY CHECK (5 Reqs): Type is ${typeRes.type} (${typeRes.successCount}/5 successful IPs: ${typeRes.ips.join(', ')})`);
+    }
+
     const proxyConfig = parseProxy(proxyInput);
     const isProxyAlive = await checkProxyAlive(proxyConfig);
 
@@ -478,7 +489,7 @@ app.get('/api/status', (req, res) => {
       host: `${data.options.host || 'gamester.org'}:${data.options.port || 25565}`,
       uptime: formatUptime(totalMs),
       proxy: data.options.proxyInput ? data.options.proxyInput.split(':')[0] : 'Direct',
-      proxyType: data.proxyType || 'CHECKING...',
+      proxyType: data.proxyType || 'UNKNOWN',
       disconnects: data.disconnectCount
     });
   });
@@ -545,4 +556,4 @@ app.delete('/api/banned-bots/:username', (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
-        
+          
