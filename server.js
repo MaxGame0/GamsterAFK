@@ -3,6 +3,7 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
+const dns = require('dns');
 const mineflayer = require('mineflayer');
 const { SocksClient } = require('socks');
 const axios = require('axios');
@@ -83,7 +84,6 @@ function parseProxy(proxyStr) {
   return null;
 }
 
-// Safely format error messages so they never print as undefined
 function formatErrorMsg(err) {
   if (!err) return 'Connection closed / Socket ended';
   if (typeof err === 'string') return err;
@@ -95,7 +95,6 @@ function formatErrorMsg(err) {
   }
 }
 
-// 5-Request Proxy Type Checker Function
 async function checkProxyType5Req(proxyStr) {
   const proxyConfig = parseProxy(proxyStr);
   if (!proxyConfig) return { type: 'DIRECT', ips: [], success: false, reason: 'Invalid or No Proxy Format' };
@@ -146,7 +145,6 @@ async function checkProxyType5Req(proxyStr) {
   };
 }
 
-// Check proxy socket connectivity & internet routing
 function checkProxyAlive(proxyConfig) {
   return new Promise((resolve) => {
     if (!proxyConfig) return resolve(true);
@@ -159,29 +157,36 @@ function checkProxyAlive(proxyConfig) {
   });
 }
 
+// FIX: Direct IP Resolution & Reliable SOCKS5 Connector
 function createSocksConnect(proxyConfig, targetHost, targetPort) {
   return (clientInstance) => {
-    const options = {
-      proxy: { host: proxyConfig.host, port: proxyConfig.port, type: 5 },
-      command: 'connect',
-      destination: { host: targetHost, port: targetPort },
-      timeout: 30000 // Extended timeout to handle slower proxy handshakes
-    };
-    if (proxyConfig.userId && proxyConfig.password) {
-      options.proxy.userId = proxyConfig.userId;
-      options.proxy.password = proxyConfig.password;
-    }
-    SocksClient.createConnection(options)
-      .then((info) => {
-        info.socket.on('error', (err) => {
-          clientInstance.emit('error', new Error(`Socket Error: ${formatErrorMsg(err)}`));
+    dns.lookup(targetHost, (dnsErr, targetIp) => {
+      const destinationHost = dnsErr || !targetIp ? targetHost : targetIp;
+
+      const options = {
+        proxy: { host: proxyConfig.host, port: proxyConfig.port, type: 5 },
+        command: 'connect',
+        destination: { host: destinationHost, port: targetPort },
+        timeout: 20000
+      };
+
+      if (proxyConfig.userId && proxyConfig.password) {
+        options.proxy.userId = proxyConfig.userId;
+        options.proxy.password = proxyConfig.password;
+      }
+
+      SocksClient.createConnection(options)
+        .then((info) => {
+          info.socket.on('error', (err) => {
+            clientInstance.emit('error', new Error(`Proxy Socket Error: ${formatErrorMsg(err)}`));
+          });
+          clientInstance.setSocket(info.socket);
+          clientInstance.emit('connect');
+        })
+        .catch((err) => {
+          clientInstance.emit('error', new Error(`SOCKS5 Handshake Failed: ${formatErrorMsg(err)}`));
         });
-        clientInstance.setSocket(info.socket);
-        clientInstance.emit('connect');
-      })
-      .catch((err) => {
-        clientInstance.emit('error', new Error(`SOCKS5 Error: ${formatErrorMsg(err)}`));
-      });
+    });
   };
 }
 
@@ -236,15 +241,20 @@ function startBotInstance(options) {
   const { username, password, proxyInput, mcVersion, host, port } = options;
   const proxyConfig = parseProxy(proxyInput);
 
+  const targetHost = host || 'gamester.org';
+  const targetPort = parseInt(port, 10) || 25565;
+
   const botOpts = {
-    host: host || 'gamester.org',
-    port: parseInt(port, 10) || 25565,
+    host: targetHost,
+    port: targetPort,
     username,
     version: mcVersion || '1.8.9',
     viewDistance: 16
   };
 
-  if (proxyConfig) botOpts.connect = createSocksConnect(proxyConfig, botOpts.host, botOpts.port);
+  if (proxyConfig) {
+    botOpts.connect = createSocksConnect(proxyConfig, targetHost, targetPort);
+  }
 
   let instanceData = activeBots.get(username) || {
     bot: null,
@@ -282,7 +292,6 @@ function startBotInstance(options) {
 
     startHumanMovementRoutine(bot, instanceData);
 
-    // TAB-LIST ONLY STAFF DETECTION
     bot.on('playerJoined', (player) => {
       if (player && player.username && checkIsStaff(player.username)) {
         logSystemMessage(instanceData, `STAFF TAB DETECTED: Staff '${player.username}' joined tab list! Disconnecting for 15s...`);
@@ -373,7 +382,6 @@ async function handleBotDisconnect(options, instanceData, rawError) {
   instanceData.disconnectCount += 1;
   logSystemMessage(instanceData, `DISCONNECT ATTEMPT #${instanceData.disconnectCount}: ${errorMsg}`);
 
-  // ONLY CHECK PROXY WHEN 5 DISCONNECTS ARE REACHED
   if (instanceData.disconnectCount >= 5) {
     logSystemMessage(instanceData, 'SYSTEM: 5 disconnects reached. Verifying proxy health & network connectivity...');
     
@@ -476,11 +484,11 @@ app.post('/api/bots/add-bulk', (req, res) => {
     if (item.username) {
       setTimeout(() => {
         startBotInstance({ ...item, accumulatedUptime: 0 });
-      }, index * 5000); // Waits 5000ms (5s) per account
+      }, index * 5000);
     }
   });
 
-  res.json({ success: true, message: `Queued ${bots.length} bots with a 5-second join delay between each.` });
+  res.json({ success: true, message: `Queued ${bots.length} bots with 5-second staggered delays.` });
 });
 
 app.post('/api/bots/stop', (req, res) => {
@@ -568,4 +576,3 @@ app.delete('/api/banned-bots/:username', (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
-    
