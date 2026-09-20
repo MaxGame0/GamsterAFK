@@ -106,9 +106,7 @@ async function checkProxyType5Req(proxyStr) {
       if (res.data && res.data.ip) {
         ips.push(res.data.ip);
       }
-    } catch (err) {
-      // If individual request fails, continue trying
-    }
+    } catch (err) {}
   }
 
   if (ips.length === 0) {
@@ -127,6 +125,7 @@ async function checkProxyType5Req(proxyStr) {
   };
 }
 
+// Check proxy socket connectivity & internet routing
 function checkProxyAlive(proxyConfig) {
   return new Promise((resolve) => {
     if (!proxyConfig) return resolve(true);
@@ -237,11 +236,10 @@ function startBotInstance(options) {
 
   instanceData.options = { ...options, accumulatedUptime: instanceData.accumulatedUptime };
 
-  // Run proxy checker in background upon start
   if (proxyInput) {
     checkProxyType5Req(proxyInput).then(res => {
       instanceData.proxyType = res.type;
-      logSystemMessage(instanceData, `PROXY CHECK (5 Reqs): Detected as ${res.type} (${res.successCount}/5 successful IPs: ${res.ips.join(', ')})`);
+      logSystemMessage(instanceData, `PROXY CHECK (5 Reqs): Type is ${res.type} (${res.successCount}/5 successful IPs: ${res.ips.join(', ')})`);
     });
   } else {
     instanceData.proxyType = 'DIRECT';
@@ -358,13 +356,14 @@ async function handleBotDisconnect(options, instanceData, errorMsg) {
   instanceData.disconnectCount += 1;
   logSystemMessage(instanceData, `DISCONNECT ATTEMPT #${instanceData.disconnectCount}: ${errorMsg}`);
 
+  // ONLY CHECK PROXY WHEN 5 DISCONNECTS ARE REACHED
   if (instanceData.disconnectCount >= 5) {
-    logSystemMessage(instanceData, 'SYSTEM: 5 disconnects reached. Checking proxy status...');
+    logSystemMessage(instanceData, 'SYSTEM: 5 disconnects reached. Verifying proxy health & network connectivity...');
     const proxyConfig = parseProxy(proxyInput);
     const isProxyAlive = await checkProxyAlive(proxyConfig);
 
     if (!isProxyAlive) {
-      logSystemMessage(instanceData, 'SYSTEM: Proxy check failed (PROXY DOWN). Moving to Proxy Down section.');
+      logSystemMessage(instanceData, 'SYSTEM: Proxy check FAILED (DEAD / NO NETWORK). Moving bot to Proxy Down section.');
       activeBots.delete(username);
       const downDb = readDb(PROXY_DOWN_FILE);
       downDb[username] = {
@@ -378,8 +377,9 @@ async function handleBotDisconnect(options, instanceData, errorMsg) {
       writeDb(PROXY_DOWN_FILE, downDb);
       return;
     } else {
-      logSystemMessage(instanceData, 'SYSTEM: Proxy check passed (PROXY ALIVE). Resetting attempt counter and reconnecting.');
-      instanceData.disconnectCount = 0;
+      // PROXY IS ALIVE AND HAS NETWORK -> RESET ATTEMPT COUNTER BACK TO 0
+      logSystemMessage(instanceData, 'SYSTEM: Proxy is ALIVE and has network access. Resetting disconnect counter from 5 to 0. Reconnecting...');
+      instanceData.disconnectCount = 0; // <--- RESET TO 0 HERE
     }
   }
 
@@ -407,7 +407,6 @@ function safelyDisconnectBot(username, reason) {
 
 // REST ENDPOINTS
 
-// Standalone Proxy Type Checker Endpoint
 app.post('/api/proxy/check-type', async (req, res) => {
   const { proxyInput } = req.body;
   if (!proxyInput) return res.status(400).json({ error: 'Proxy input string required' });
