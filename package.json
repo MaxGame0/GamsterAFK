@@ -1,16 +1,19 @@
 {
-  "name": "dark-afk-server",
+  "name": "minecraft-bot-dashboard",
   "version": "1.0.0",
-  "description": "Minecraft AFK Bot Manager with Proxy Checker, Staff Evasion, and Revival Queue",
+  "description": "Minecraft Bot Web Dashboard with Inventory Management and SOCKS5 Support",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
+  "engines": {
+    "node": ">=18.x"
+  },
   "dependencies": {
-    "axios": "^1.7.2",
+    "axios": "^1.7.9",
+    "canvas": "^2.11.2",
     "express": "^4.19.2",
-    "mineflayer": "^4.20.1",
-    "socks": "^2.8.3",
-    "socks-proxy-agent": "^8.0.3"
+    "mineflayer": "^4.20.0",
+    "socks": "^2.8.3"
   }
 }
