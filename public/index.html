@@ -2,397 +2,423 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Dark AFK Control Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Minecraft Bot Web Dashboard</title>
   <style>
-    body { background: #0f111a; color: #fff; font-family: sans-serif; padding: 20px; }
-    .container { max-width: 1300px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-    .full-width { grid-column: 1 / -1; }
-    .card { background: #1a1d2e; border: 1px solid #2a2d42; border-radius: 8px; padding: 20px; }
-    h2 { margin-top: 0; color: #7289da; font-size: 1.1rem; }
-    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-    th, td { padding: 8px; border-bottom: 1px solid #2a2d42; text-align: left; font-size: 0.85rem; }
-    th { color: #a0a0a0; }
-    .console-box { background: #0d0e15; height: 160px; overflow-y: auto; padding: 10px; font-family: monospace; font-size: 0.8rem; border-radius: 4px; border: 1px solid #2a2d42; }
-    input, button, select, textarea { background: #0d0e15; color: #fff; border: 1px solid #2a2d42; padding: 8px; border-radius: 4px; }
-    button { background: #7289da; cursor: pointer; font-weight: bold; border: none; }
-    button.danger { background: #e74c3c; color: #fff; }
-    button.success { background: #2ecc71; color: #000; }
-    button.small { padding: 4px 8px; font-size: 0.75rem; }
-    .flex-row { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
-    textarea { width: 100%; height: 80px; font-family: monospace; font-size: 0.8rem; box-sizing: border-box; }
-    .staff-tag { display: inline-flex; align-items: center; background: #2a2d42; padding: 4px 10px; border-radius: 12px; margin: 3px; font-size: 0.85rem; }
-    .staff-tag button { background: none; border: none; color: #e74c3c; margin-left: 8px; cursor: pointer; font-weight: bold; font-size: 0.9rem; padding: 0; }
+    :root {
+      --bg-dark: #121214;
+      --card-bg: #1e1e24;
+      --card-border: #2a2a32;
+      --primary: #5865f2;
+      --primary-hover: #4752c4;
+      --danger: #ed4245;
+      --danger-hover: #c03537;
+      --success: #57f287;
+      --text-main: #f2f3f5;
+      --text-muted: #949ba4;
+      --input-bg: #0e0e10;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    body { background-color: var(--bg-dark); color: var(--text-main); padding: 20px; }
+    .container { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 1fr; gap: 20px; }
     
-    .badge { padding: 3px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; text-transform: uppercase; }
-    .badge-static { background: #27ae60; color: #fff; }
-    .badge-rotating { background: #e67e22; color: #fff; }
-    .badge-checking { background: #f1c40f; color: #000; }
-    .badge-dead { background: #e74c3c; color: #fff; }
+    header {
+      background-color: var(--card-bg);
+      padding: 20px;
+      border-radius: 8px;
+      border: 1px solid var(--card-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    /* TOP NAVIGATION BAR */
+    .navbar {
+      display: flex;
+      gap: 10px;
+      background-color: var(--card-bg);
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid var(--card-border);
+      flex-wrap: wrap;
+    }
+
+    .nav-btn {
+      padding: 10px 18px;
+      border: none;
+      border-radius: 6px;
+      font-weight: bold;
+      cursor: pointer;
+      color: var(--text-muted);
+      background: transparent;
+      transition: all 0.2s;
+    }
+    .nav-btn:hover { background-color: #2b2d31; color: var(--text-main); }
+    .nav-btn.active { background-color: var(--primary); color: white; }
+
+    .btn {
+      padding: 10px 16px;
+      border: none;
+      border-radius: 4px;
+      font-weight: bold;
+      cursor: pointer;
+      color: white;
+      transition: background 0.2s;
+    }
+    .btn-primary { background-color: var(--primary); }
+    .btn-primary:hover { background-color: var(--primary-hover); }
+    .btn-danger { background-color: var(--danger); }
+    .btn-danger:hover { background-color: var(--danger-hover); }
+
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    .panel { background-color: var(--card-bg); border-radius: 8px; border: 1px solid var(--card-border); padding: 20px; margin-bottom: 20px; }
+    .panel h2 { font-size: 1.1rem; margin-bottom: 15px; color: var(--text-muted); text-transform: uppercase; }
+
+    /* Bot Cards */
+    .bot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 15px; }
+    .bot-card { background-color: var(--input-bg); border: 1px solid var(--card-border); border-radius: 6px; padding: 15px; }
+    .bot-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .bot-name { font-weight: bold; font-size: 1.1rem; }
+    .bot-status { font-size: 0.75rem; padding: 3px 8px; border-radius: 4px; }
+    .status-online { background-color: rgba(87, 242, 135, 0.2); color: var(--success); }
+    .status-offline { background-color: rgba(237, 66, 69, 0.2); color: var(--danger); }
+    .bot-info { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 10px; }
+    
+    .form-group { margin-bottom: 15px; max-width: 400px; }
+    label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 5px; }
+    input { width: 100%; padding: 10px; background-color: var(--input-bg); border: 1px solid var(--card-border); border-radius: 4px; color: var(--text-main); }
+    
+    .console-logs { background-color: #000; border: 1px solid var(--card-border); border-radius: 4px; height: 150px; padding: 10px; font-family: monospace; font-size: 0.85rem; overflow-y: auto; color: #00ffcc; }
+    .log-entry { margin-bottom: 4px; }
+
+    /* Inventory Screen */
+    .inventory-container { display: flex; flex-direction: column; gap: 15px; align-items: start; }
+    .inventory-canvas-box { border: 2px solid var(--card-border); background: #000; border-radius: 6px; padding: 10px; }
   </style>
 </head>
 <body>
+
   <div class="container">
-    <div class="full-width card">
-      <h1>Dark AFK Control Dashboard</h1>
+    <header>
+      <h1>Minecraft Bot Control Center</h1>
+      <button class="btn btn-danger" onclick="stopAll()">🛑 Emergency Stop All</button>
+    </header>
+
+    <!-- Top Navigation Bar -->
+    <div class="navbar">
+      <button class="nav-btn active" onclick="switchTab('dashboardTab', this)">📊 Dashboard</button>
+      <button class="nav-btn" onclick="switchTab('spawnTab', this)">➕ Spawn Bots</button>
+      <button class="nav-btn" onclick="switchTab('inventoryTab', this)">🎒 Inventory Manager</button>
+      <button class="nav-btn" onclick="switchTab('proxyTab', this)">🔄 Set / Check Proxy</button>
+      <button class="nav-btn" onclick="switchTab('moveTab', this)">🚶 Move Bot</button>
+      <button class="nav-btn" onclick="switchTab('staffTab', this)">🛡️ Staff List</button>
     </div>
 
-    <!-- PROXY 5-REQUEST TYPE TESTER CARD -->
-    <div class="card full-width">
-      <h2>🌐 5-Request Proxy Type Checker (Static vs Rotating)</h2>
-      <div class="flex-row">
-        <input type="text" id="checkProxyInput" placeholder="Enter proxy (host:port:user:pass)" style="flex: 1;">
-        <button onclick="testProxyType()">🔍 Test Proxy (5 Reqs)</button>
-      </div>
-      <div id="proxyTestResult" style="font-size: 0.85rem; margin-top: 5px; color: #aaa;">
-        Results will show if proxy returns single IP (STATIC) or multiple IPs (ROTATING).
-      </div>
-    </div>
-
-    <!-- STAFF DETECTION SETTINGS -->
-    <div class="card full-width">
-      <h2>🛡️ Tab-List Staff Detection Settings (15s Reconnect)</h2>
-      <div class="flex-row">
-        <input type="text" id="newStaffName" placeholder="Enter staff keyword or username..." style="flex: 1;">
-        <button class="success" onclick="addStaff()">Add Staff Name</button>
-      </div>
-      <div id="staffListContainer" style="margin-top: 10px;"></div>
-    </div>
-
-    <!-- ADD SINGLE BOT CARD -->
-    <div class="card">
-      <h2>➕ Add Single Bot</h2>
-      <div class="flex-row">
-        <input type="text" id="singleUser" placeholder="Username *" style="flex: 1;">
-        <input type="text" id="singlePass" placeholder="Password" style="flex: 1;">
-      </div>
-      <div class="flex-row">
-        <input type="text" id="singleProxy" placeholder="Proxy (host:port:user:pass)" style="flex: 1;">
-      </div>
-      <div class="flex-row">
-        <input type="text" id="singleHost" placeholder="Server Host (Default: gamester.org)" style="flex: 1;">
-        <input type="text" id="singlePort" placeholder="Port (Default: 25565)" style="width: 100px;">
-      </div>
-      <button class="success" onclick="addSingleBot()" style="width: 100%;">Launch Bot</button>
-    </div>
-
-    <!-- BULK ADD BOTS CARD -->
-    <div class="card">
-      <h2>📦 Bulk Add Bots (Lines: user:pass:proxy)</h2>
-      <textarea id="bulkInput" placeholder="bot1:pass123:1.2.3.4:1080&#10;bot2:pass123:5.6.7.8:1080:user:pass&#10;bot3:pass123"></textarea>
-      <div class="flex-row" style="margin-top: 10px;">
-        <input type="text" id="bulkHost" placeholder="Server Host (Default: gamester.org)" style="flex: 1;">
-        <input type="text" id="bulkPort" placeholder="Port (Default: 25565)" style="width: 100px;">
-        <button class="success" onclick="addBulkBots()">Launch All Bots</button>
+    <!-- TAB 1: DASHBOARD -->
+    <div id="dashboardTab" class="tab-content active">
+      <div class="panel">
+        <h2>Active Bots (<span id="botCount">0</span>)</h2>
+        <div class="bot-grid" id="botGrid">
+          <p style="color: var(--text-muted);">No active bots running.</p>
+        </div>
       </div>
     </div>
 
-    <!-- ACTIVE BOTS TABLE -->
-    <div class="card full-width">
-      <h2>🤖 Active Bots</h2>
-      <table>
-        <thead><tr><th>Username</th><th>Password</th><th>Server</th><th>Uptime</th><th>Attempts</th><th>Proxy</th><th>Proxy Type</th><th>Action</th></tr></thead>
-        <tbody id="activeBotsTable"></tbody>
-      </table>
-    </div>
-
-    <!-- SYSTEM & DISCONNECT CONSOLE -->
-    <div class="card full-width">
-      <h2>📜 System & Event Console</h2>
-      <div class="flex-row">
-        <select id="chatBotSelect" onchange="loadSystemConsole()"><option value="">Select Bot</option></select>
+    <!-- TAB 2: SPAWN BOTS -->
+    <div id="spawnTab" class="tab-content">
+      <div class="panel">
+        <h2>➕ Spawn New Bots</h2>
+        <div class="form-group">
+          <label>Server Address</label>
+          <input type="text" id="spawnServer" value="as.gamster.org:25565">
+        </div>
+        <div class="form-group">
+          <label>Usernames (comma separated)</label>
+          <input type="text" id="spawnUsernames" placeholder="Bot1, Bot2, Bot3">
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" id="spawnPassword">
+        </div>
+        <div class="form-group">
+          <label>SOCKS5 Proxy (Optional)</label>
+          <input type="text" id="spawnProxy" placeholder="IP:Port:User:Pass">
+        </div>
+        <button class="btn btn-primary" onclick="submitSpawn()">Spawn Bots</button>
       </div>
-      <div class="console-box" id="systemConsole">Select an active bot to view system events...</div>
     </div>
 
-    <!-- PROXY DOWN SECTION -->
-    <div class="card full-width">
-      <h2>⚠️ Proxy Down Bots</h2>
-      <div class="flex-row">
-        <input type="text" id="newProxyInput" placeholder="New Proxy (host:port:user:pass)" style="flex: 1;">
-        <button class="success" onclick="reviveSelectedBots()">Assign New Proxy & Connect (Max 4)</button>
+    <!-- TAB 3: INVENTORY MANAGER -->
+    <div id="inventoryTab" class="tab-content">
+      <div class="panel">
+        <h2>🎒 Inventory Control</h2>
+        <div style="display: flex; gap: 10px; align-items: flex-end; margin-bottom: 15px;">
+          <div class="form-group" style="margin-bottom:0;">
+            <label>Bot Username</label>
+            <input type="text" id="invTargetUser" placeholder="Enter Bot Name">
+          </div>
+          <button class="btn btn-primary" onclick="loadBotInventory()">Load Inventory</button>
+        </div>
+
+        <div class="inventory-container" id="inventoryDisplayArea" style="display: none;">
+          <div class="inventory-canvas-box">
+            <img id="inventoryImg" src="" alt="Inventory Loading..." style="display:block;">
+          </div>
+
+          <div style="display: flex; gap: 10px; align-items: flex-end; background-color: var(--input-bg); padding: 15px; border-radius: 6px; border: 1px solid var(--card-border);">
+            <div class="form-group" style="margin-bottom:0; width: 100px;">
+              <label>Slot (0 - 35)</label>
+              <input type="number" id="invSlotInput" min="0" max="35" value="0">
+            </div>
+            <button class="btn btn-primary" onclick="clickInventorySlot(0)">Left Click</button>
+            <button class="btn btn-primary" style="background-color: #9b59b6;" onclick="clickInventorySlot(1)">Right Click</button>
+          </div>
+        </div>
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Select</th>
-            <th>Username</th>
-            <th>Password</th>
-            <th>Saved Uptime</th>
-            <th>Old Proxy</th>
-            <th>Down Time</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody id="proxyDownTable"></tbody>
-      </table>
     </div>
 
-    <!-- SUCCESSFUL AFK SECTION -->
-    <div class="card">
-      <h2>✅ Successful AFK Bots (20h 1m+)</h2>
-      <table>
-        <thead><tr><th>Username</th><th>Password</th><th>Uptime</th><th>Completed At</th><th>Action</th></tr></thead>
-        <tbody id="successAfkTable"></tbody>
-      </table>
+    <!-- TAB 4: PROXY SET / CHECK -->
+    <div id="proxyTab" class="tab-content">
+      <div class="panel">
+        <h2>🔄 Update Bot Proxy</h2>
+        <div class="form-group">
+          <label>Target Bot Username</label>
+          <input type="text" id="setProxyUser" placeholder="Bot Username">
+        </div>
+        <div class="form-group">
+          <label>New Proxy String</label>
+          <input type="text" id="setProxyInput" placeholder="IP:Port:User:Pass">
+        </div>
+        <button class="btn btn-primary" onclick="submitSetProxy()">Update Proxy & Revive</button>
+      </div>
+
+      <div class="panel">
+        <h2>📡 Check Proxy Type (5 Requests Test)</h2>
+        <div class="form-group">
+          <label>Proxy String</label>
+          <input type="text" id="checkProxyInput" placeholder="IP:Port:User:Pass">
+        </div>
+        <button class="btn btn-primary" onclick="submitCheckProxy()">Test Proxy</button>
+      </div>
     </div>
 
-    <!-- BANNED BOTS SECTION -->
-    <div class="card">
-      <h2>🚫 Banned / Kicked Bots</h2>
-      <table>
-        <thead><tr><th>Username</th><th>Password</th><th>Uptime</th><th>Reason</th><th>Action</th></tr></thead>
-        <tbody id="bannedBotsTable"></tbody>
-      </table>
+    <!-- TAB 5: MOVE BOT -->
+    <div id="moveTab" class="tab-content">
+      <div class="panel">
+        <h2>🚶 Move Bot Coordinates</h2>
+        <div class="form-group">
+          <label>Bot Username</label>
+          <input type="text" id="moveUser" placeholder="Bot Username">
+        </div>
+        <div style="display: flex; gap: 10px; max-width: 400px;">
+          <div class="form-group"><label>X</label><input type="number" id="moveX"></div>
+          <div class="form-group"><label>Y</label><input type="number" id="moveY"></div>
+          <div class="form-group"><label>Z</label><input type="number" id="moveZ"></div>
+        </div>
+        <button class="btn btn-primary" onclick="submitMove()">Start Movement</button>
+      </div>
+    </div>
+
+    <!-- TAB 6: STAFF MANAGEMENT -->
+    <div id="staffTab" class="tab-content">
+      <div class="panel">
+        <h2>🛡️ Staff List Evasion</h2>
+        <div class="form-group">
+          <label>Staff Username</label>
+          <input type="text" id="staffUser" placeholder="Username">
+        </div>
+        <div style="display: flex; gap: 10px; max-width: 400px;">
+          <button class="btn btn-primary" style="flex:1;" onclick="submitStaff('add')">Add Staff</button>
+          <button class="btn btn-danger" style="flex:1;" onclick="submitStaff('remove')">Remove Staff</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Console Logs -->
+    <div class="panel">
+      <h2>Console Logs</h2>
+      <div class="console-logs" id="consoleLogs">
+        <div class="log-entry">[SYSTEM] Navigation Control Panel Initialized.</div>
+      </div>
     </div>
   </div>
 
   <script>
-    async function testProxyType() {
-      const input = document.getElementById('checkProxyInput').value.trim();
-      const resDiv = document.getElementById('proxyTestResult');
-      if (!input) return alert('Enter a proxy string.');
-
-      resDiv.innerHTML = 'Sending 5 HTTP requests through proxy... Please wait...';
-
-      const res = await fetch('/api/proxy/check-type', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ proxyInput: input })
-      });
-
-      const data = await res.json();
-      if (!data.success) {
-        resDiv.innerHTML = `<b style="color:#e74c3c;">Result: ${data.type}</b> (${data.reason || 'Failed'})`;
-        return;
-      }
-
-      const color = data.type === 'ROTATING' ? '#e67e22' : '#27ae60';
-      resDiv.innerHTML = `<b style="color:${color};">RESULT: ${data.type} PROXY</b> | Responded: ${data.successCount}/5 | Unique IPs: ${data.uniqueCount} | IPs: ${data.ips.join(', ')}`;
+    function switchTab(tabId, btn) {
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+      
+      document.getElementById(tabId).classList.add('active');
+      btn.classList.add('active');
     }
 
-    async function loadStaff() {
-      const res = await fetch('/api/staff');
-      const staffList = await res.json();
-      const container = document.getElementById('staffListContainer');
-      container.innerHTML = '';
-      staffList.forEach(name => {
-        container.innerHTML += `
-          <span class="staff-tag">
-            ${name}
-            <button onclick="removeStaff('${name}')" title="Remove staff name">✕</button>
-          </span>
-        `;
-      });
+    function logConsole(text) {
+      const logs = document.getElementById('consoleLogs');
+      logs.innerHTML += `<div class="log-entry">${text}</div>`;
+      logs.scrollTop = logs.scrollHeight;
     }
 
-    async function addStaff() {
-      const input = document.getElementById('newStaffName');
-      const name = input.value.trim();
-      if (!name) return alert('Enter a staff keyword or username.');
+    async function fetchStatus() {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        document.getElementById('botCount').innerText = data.count;
 
-      await fetch('/api/staff/add', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name })
-      });
-
-      input.value = '';
-      loadStaff();
-    }
-
-    async function removeStaff(name) {
-      await fetch('/api/staff/remove', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name })
-      });
-      loadStaff();
-    }
-
-    async function addSingleBot() {
-      const username = document.getElementById('singleUser').value.trim();
-      const password = document.getElementById('singlePass').value.trim();
-      const proxyInput = document.getElementById('singleProxy').value.trim();
-      const host = document.getElementById('singleHost').value.trim();
-      const port = document.getElementById('singlePort').value.trim();
-
-      if (!username) return alert('Username is required.');
-
-      await fetch('/api/bots/add-single', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password, proxyInput, host, port })
-      });
-
-      document.getElementById('singleUser').value = '';
-      document.getElementById('singlePass').value = '';
-      document.getElementById('singleProxy').value = '';
-      loadStatus();
-    }
-
-    async function addBulkBots() {
-      const text = document.getElementById('bulkInput').value.trim();
-      const host = document.getElementById('bulkHost').value.trim();
-      const port = document.getElementById('bulkPort').value.trim();
-
-      if (!text) return alert('Enter bot details.');
-
-      const lines = text.split('\n');
-      const bots = [];
-
-      lines.forEach(line => {
-        const parts = line.trim().split(':');
-        if (parts.length >= 1 && parts[0]) {
-          const username = parts[0];
-          const password = parts[1] || '';
-          const proxyInput = parts.slice(2).join(':');
-          bots.push({ username, password, proxyInput, host, port });
+        const grid = document.getElementById('botGrid');
+        if (data.bots.length === 0) {
+          grid.innerHTML = '<p style="color: var(--text-muted);">No active bots running.</p>';
+          return;
         }
-      });
 
-      if (bots.length === 0) return alert('No valid bot lines found.');
+        grid.innerHTML = data.bots.map(bot => `
+          <div class="bot-card">
+            <div class="bot-header">
+              <span class="bot-name">${bot.username}</span>
+              <span class="bot-status ${bot.isOnline ? 'status-online' : 'status-offline'}">${bot.status}</span>
+            </div>
+            <div class="bot-info">
+              <div><strong>Uptime:</strong> ${bot.uptime}</div>
+              <div><strong>Ping:</strong> ${bot.ping} ms</div>
+              <div><strong>Coords:</strong> ${bot.coordinates ? `X: ${bot.coordinates.x}, Y: ${bot.coordinates.y}, Z:${bot.coordinates.z}` : 'N/A'}</div>
+            </div>
+            <div style="margin-top: 10px;">
+              <input type="text" id="chat_${bot.username}" placeholder="Send chat..." style="padding: 5px; font-size: 0.8rem; margin-bottom: 5px;">
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
+                <button class="btn btn-primary" style="padding: 5px; font-size: 0.8rem;" onclick="sendChat('${bot.username}')">Chat</button>
+                <button class="btn btn-danger" style="padding: 5px; font-size: 0.8rem;" onclick="stopBot('${bot.username}')">Disconnect</button>
+              </div>
+            </div>
+          </div>
+        `).join('');
+      } catch (e) {}
+    }
 
-      await fetch('/api/bots/add-bulk', {
+    /* INVENTORY FEATURES */
+    let invRefreshInterval = null;
+
+    function loadBotInventory() {
+      const username = document.getElementById('invTargetUser').value.trim();
+      if (!username) return alert('Enter a bot username');
+
+      document.getElementById('inventoryDisplayArea').style.display = 'flex';
+      const img = document.getElementById('inventoryImg');
+
+      if (invRefreshInterval) clearInterval(invRefreshInterval);
+      
+      const updateImg = () => { img.src = `/api/inventory/${username}?t=${Date.now()}`; };
+      updateImg();
+      invRefreshInterval = setInterval(updateImg, 3000);
+      logConsole(`Viewing inventory for bot: ${username}`);
+    }
+
+    async function clickInventorySlot(mouseButton) {
+      const username = document.getElementById('invTargetUser').value.trim();
+      const slot = document.getElementById('invSlotInput').value;
+      if (!username) return alert('Enter a bot username');
+
+      await fetch('/api/inventory/click', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bots })
+        body: JSON.stringify({ username, slot: parseInt(slot), mouseButton })
       });
 
-      document.getElementById('bulkInput').value = '';
-      loadStatus();
+      logConsole(`Executed ${mouseButton === 0 ? 'LEFT' : 'RIGHT'} click on slot ${slot} for ${username}`);
+      setTimeout(loadBotInventory, 500);
     }
 
-    function getBadgeClass(type) {
-      if (type === 'STATIC') return 'badge-static';
-      if (type === 'ROTATING') return 'badge-rotating';
-      if (type === 'CHECKING...') return 'badge-checking';
-      return 'badge-dead';
-    }
+    async function submitSpawn() {
+      const server = document.getElementById('spawnServer').value;
+      const usernames = document.getElementById('spawnUsernames').value;
+      const password = document.getElementById('spawnPassword').value;
+      const proxy = document.getElementById('spawnProxy').value;
 
-    async function loadStatus() {
-      const res = await fetch('/api/status');
-      const bots = await res.json();
-      const tbody = document.getElementById('activeBotsTable');
-      const select = document.getElementById('chatBotSelect');
-      const currentSelected = select.value;
-
-      tbody.innerHTML = '';
-      select.innerHTML = '<option value="">Select Bot</option>';
-
-      bots.forEach(bot => {
-        tbody.innerHTML += `<tr>
-          <td><b>${bot.username}</b></td>
-          <td><code>${bot.password}</code></td>
-          <td>${bot.host}</td>
-          <td>${bot.uptime}</td>
-          <td>${bot.disconnects}/5</td>
-          <td>${bot.proxy}</td>
-          <td><span class="badge ${getBadgeClass(bot.proxyType)}">${bot.proxyType}</span></td>
-          <td><button class="danger small" onclick="stopBot('${bot.username}')">Disconnect</button></td>
-        </tr>`;
-        select.innerHTML += `<option value="${bot.username}" ${bot.username === currentSelected ? 'selected' : ''}>${bot.username}</option>`;
+      await fetch('/api/spawn', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ server, usernames, password, proxy })
       });
+      logConsole(`Requested spawn for: ${usernames}`);
+      fetchStatus();
+    }
+
+    async function submitSetProxy() {
+      const username = document.getElementById('setProxyUser').value;
+      const proxy = document.getElementById('setProxyInput').value;
+
+      await fetch('/api/setproxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, proxy })
+      });
+      logConsole(`Updated proxy for bot: ${username}`);
+    }
+
+    async function submitCheckProxy() {
+      const proxy = document.getElementById('checkProxyInput').value;
+      logConsole(`Testing proxy 5 times... Please wait.`);
+
+      const res = await fetch('/api/checkproxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ proxy })
+      });
+      const data = await res.json();
+      logConsole(`[PROXY RESULT] ${data.result} | IPs: ${data.ips.join(', ')}`);
+    }
+
+    async function submitMove() {
+      const username = document.getElementById('moveUser').value;
+      const x = document.getElementById('moveX').value;
+      const y = document.getElementById('moveY').value;
+      const z = document.getElementById('moveZ').value;
+
+      await fetch('/api/move', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, x: parseFloat(x), y: parseFloat(y), z: parseFloat(z) })
+      });
+      logConsole(`Initiated move for ${username} to (${x}, ${y}, ${z})`);
+    }
+
+    async function submitStaff(action) {
+      const username = document.getElementById('staffUser').value;
+      await fetch('/api/staff', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, username })
+      });
+      logConsole(`Staff list ${action}: ${username}`);
+    }
+
+    async function sendChat(target) {
+      const msgInput = document.getElementById(`chat_${target}`);
+      const message = msgInput.value;
+      await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target, message })
+      });
+      logConsole(`[Chat] [${target}]: ${message}`);
+      msgInput.value = '';
     }
 
     async function stopBot(username) {
-      await fetch('/api/bots/stop', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ username }) });
-      loadStatus();
-    }
-
-    async function loadSystemConsole() {
-      const username = document.getElementById('chatBotSelect').value;
-      if (!username) return;
-      const res = await fetch(`/api/chat/${username}`);
-      const data = await res.json();
-      const consoleBox = document.getElementById('systemConsole');
-      consoleBox.innerHTML = data.logs.join('<br>') || 'No logs recorded for this session yet.';
-      consoleBox.scrollTop = consoleBox.scrollHeight;
-    }
-
-    async function removeItem(endpoint, username) {
-      await fetch(`/api/${endpoint}/${username}`, { method: 'DELETE' });
-      loadLogs();
-    }
-
-    async function reviveSelectedBots() {
-      const checkboxes = document.querySelectorAll('.proxy-checkbox:checked');
-      const selectedUsers = Array.from(checkboxes).map(cb => cb.value);
-      const newProxy = document.getElementById('newProxyInput').value.trim();
-
-      if (selectedUsers.length === 0) return alert('Select at least one bot.');
-      if (selectedUsers.length > 4) return alert('You can select a maximum of 4 bots at a time.');
-      if (!newProxy) return alert('Please enter a new proxy string.');
-
-      const res = await fetch('/api/proxy-down/revive-bulk', {
+      await fetch('/api/stop', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ usernames: selectedUsers, newProxy })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username })
       });
-
-      const data = await res.json();
-      if (data.success) {
-        document.getElementById('newProxyInput').value = '';
-        loadLogs();
-        loadStatus();
-      } else {
-        alert(data.error || 'Failed to re-assign proxies.');
-      }
+      logConsole(`Stopped bot: ${username}`);
+      fetchStatus();
     }
 
-    async function loadLogs() {
-      const resAfk = await fetch('/api/success-afk');
-      const afkData = await resAfk.json();
-      const afkTable = document.getElementById('successAfkTable');
-      afkTable.innerHTML = '';
-      Object.entries(afkData).forEach(([user, info]) => {
-        afkTable.innerHTML += `<tr>
-          <td><b>${user}</b></td>
-          <td><code>${info.password || 'N/A'}</code></td>
-          <td>${info.uptime}</td>
-          <td>${new Date(info.date).toLocaleTimeString()}</td>
-          <td><button class="small" onclick="removeItem('success-afk', '${user}')">Dismiss</button></td>
-        </tr>`;
-      });
+    async function stopAll() { stopBot('all'); }
 
-      const resProxy = await fetch('/api/proxy-down');
-      const proxyData = await resProxy.json();
-      const proxyTable = document.getElementById('proxyDownTable');
-      proxyTable.innerHTML = '';
-      Object.entries(proxyData).forEach(([user, info]) => {
-        proxyTable.innerHTML += `<tr>
-          <td><input type="checkbox" class="proxy-checkbox" value="${user}"></td>
-          <td><b>${user}</b></td>
-          <td><code>${info.password || 'N/A'}</code></td>
-          <td>${info.uptime || '0h 0m 0s'}</td>
-          <td>${info.proxyInput}</td>
-          <td>${new Date(info.downTimestamp).toLocaleTimeString()}</td>
-          <td><button class="small danger" onclick="removeItem('proxy-down', '${user}')">Dismiss</button></td>
-        </tr>`;
-      });
-
-      const resBanned = await fetch('/api/banned-bots');
-      const bannedData = await resBanned.json();
-      const bannedTable = document.getElementById('bannedBotsTable');
-      bannedTable.innerHTML = '';
-      Object.entries(bannedData).forEach(([user, info]) => {
-        bannedTable.innerHTML += `<tr>
-          <td><b>${user}</b></td>
-          <td><code>${info.password || 'N/A'}</code></td>
-          <td>${info.uptime || '0h 0m 0s'}</td>
-          <td>${info.reason}</td>
-          <td><button class="small danger" onclick="removeItem('banned-bots', '${user}')">Dismiss</button></td>
-        </tr>`;
-      });
-
-      loadSystemConsole();
-    }
-
-    setInterval(loadStatus, 4000);
-    setInterval(loadSystemConsole, 3000);
-    setInterval(loadLogs, 10000);
-    loadStaff();
-    loadStatus();
-    loadLogs();
+    setInterval(fetchStatus, 4000);
+    fetchStatus();
   </script>
 </body>
 </html>
