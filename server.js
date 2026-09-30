@@ -12,6 +12,7 @@ app.use(express.static('public'));
 const PORT = process.env.PORT || 3000;
 const activeBots = new Map();
 
+// Original staff list restored + sneakykutzubot added
 let STAFF_LIST = new Set([
   'henriks9', 'seeken', 'akyss', 'lupu_xx_x', 'ionutz547', 'andreibeni',
   'snaccks', 'gr_veteran', 'osmiumredox', 'bombita_01', 'ld007', 'space_turtle9',
@@ -19,10 +20,11 @@ let STAFF_LIST = new Set([
   'doritostar', 'athul', 'godkissed', 'synchitss', '_pixelwarrioryt_',
   'karlthhkiller3', 'pintux', 'wost_ali', 'robi5937', 'mihaaiiii', 'megasus',
   'theashz', 'tini_alina', 'gamster', 'itsb2_', 'officialmex', 'nayskutzu',
-  'maria_int', '_shadowxd'
+  'maria_int', '_shadowxd', 'sneakykutzubot'
 ]);
 
 function formatUptime(ms) {
+  if (ms <= 0) return '0h 0m 0s';
   const hours = Math.floor(ms / (1000 * 60 * 60));
   const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
   const seconds = Math.floor((ms % (1000 * 60)) / 1000);
@@ -64,6 +66,28 @@ function createSocksConnect(proxyConfig, targetHost, targetPort) {
   };
 }
 
+let nextAvailableReconnectTime = Date.now();
+
+async function testProxyAlive(proxyStr) {
+  const p = parseProxy(proxyStr);
+  if (!p) return false;
+  try {
+    const conn = await SocksClient.createConnection({
+      proxy: { host: p.host, port: p.port, type: 5, userId: p.userId, password: p.password },
+      command: 'connect',
+      destination: { host: 'api.ipify.org', port: 443 },
+      timeout: 6000
+    });
+    await axios.get('https://api.ipify.org', {
+      httpsAgent: new https.Agent({ socket: conn.socket, keepAlive: false }),
+      timeout: 5000
+    });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 // --- API ENDPOINTS ---
 
 app.post('/api/spawn', (req, res) => {
@@ -79,9 +103,9 @@ app.post('/api/spawn', (req, res) => {
       if (!session) {
         session = {
           username, password, proxyInput: proxy, host, port,
-          status: 'Connecting...', chatLogs: [], accumulatedTime: 0,
-          lastConnectTime: null, isOnline: false, isConnecting: false,
-          spawnIndex: index, bot: null
+          status: 'Connecting...', accumulatedTime: 0,
+          sessionStartTime: null, isOnline: false,
+          consecutiveDisconnects: 0, bot: null
         };
         activeBots.set(username, session);
       }
@@ -97,6 +121,7 @@ app.post('/api/setproxy', (req, res) => {
   const session = activeBots.get(username);
   if (session) {
     session.proxyInput = proxy;
+    session.consecutiveDisconnects = 0;
     session.status = 'Proxy Updated. Reconnecting...';
     connectBot(session);
     return res.json({ status: 'ok' });
@@ -163,11 +188,20 @@ app.post('/api/move', (req, res) => {
   res.json({ status: 'moving' });
 });
 
+// STAFF LIST ENDPOINTS
+app.get('/api/staff', (req, res) => {
+  res.json({ staff: Array.from(STAFF_LIST) });
+});
+
 app.post('/api/staff', (req, res) => {
   const { action, username } = req.body;
-  if (action === 'add') STAFF_LIST.add(username.toLowerCase());
-  if (action === 'remove') STAFF_LIST.delete(username.toLowerCase());
-  res.json({ status: 'ok' });
+  if (!username) return res.status(400).json({ error: 'Username required' });
+  const cleanUser = username.trim().toLowerCase();
+  
+  if (action === 'add') STAFF_LIST.add(cleanUser);
+  if (action === 'remove') STAFF_LIST.delete(cleanUser);
+  
+  res.json({ status: 'ok', staff: Array.from(STAFF_LIST) });
 });
 
 app.post('/api/chat', (req, res) => {
@@ -198,7 +232,9 @@ app.get('/api/status', (req, res) => {
   const list = [];
   activeBots.forEach((session, name) => {
     let uptimeMs = session.accumulatedTime;
-    if (session.isOnline && session.lastConnectTime) uptimeMs += (Date.now() - session.lastConnectTime);
+    if (session.isOnline && session.sessionStartTime) {
+      uptimeMs += (Date.now() - session.sessionStartTime);
+    }
 
     let coords = null;
     if (session.isOnline && session.bot?.entity?.position) {
@@ -206,19 +242,23 @@ app.get('/api/status', (req, res) => {
       coords = { x: Math.round(pos.x), y: Math.round(pos.y), z: Math.round(pos.z) };
     }
 
+    let pingVal = 0;
+    if (session.isOnline && session.bot) {
+      pingVal = session.bot.player?.ping || session.bot._client?.latency || 0;
+    }
+
     list.push({
       username: name,
       status: session.status,
       isOnline: session.isOnline,
       uptime: formatUptime(uptimeMs),
-      ping: session.isOnline && session.bot ? session.bot.player?.ping || 0 : 0,
+      ping: pingVal,
       coordinates: coords
     });
   });
   res.json({ count: list.length, bots: list });
 });
 
-// GET INVENTORY CANVAS FOR A SPECIFIC BOT
 app.get('/api/inventory/:username', (req, res) => {
   const session = activeBots.get(req.params.username);
   if (!session || !session.isOnline || !session.bot) return res.status(404).send('Bot Offline');
@@ -240,7 +280,6 @@ app.get('/api/inventory/:username', (req, res) => {
     ctx.strokeStyle = '#555555';
     ctx.strokeRect(x, y, 40, 40);
 
-    // Draw Slot Index
     ctx.fillStyle = '#777777';
     ctx.fillText(`${i}`, x + 2, y + 10);
 
@@ -257,14 +296,12 @@ app.get('/api/inventory/:username', (req, res) => {
   res.send(canvas.toBuffer());
 });
 
-// CLICK INVENTORY SLOT (LEFT / RIGHT)
 app.post('/api/inventory/click', async (req, res) => {
   const { username, slot, mouseButton } = req.body;
   const session = activeBots.get(username);
   if (!session || !session.isOnline || !session.bot) return res.status(400).json({ error: 'Bot offline' });
 
   try {
-    // mouseButton: 0 = Left Click, 1 = Right Click
     await session.bot.clickWindow(slot, mouseButton, 0);
     res.json({ status: 'clicked' });
   } catch (err) {
@@ -293,7 +330,8 @@ function connectBot(session) {
   bot.once('spawn', () => {
     session.isOnline = true;
     session.status = 'Online in Server';
-    session.lastConnectTime = Date.now();
+    session.sessionStartTime = Date.now();
+    session.consecutiveDisconnects = 0;
 
     if (session.password) {
       setTimeout(() => bot.chat(`/register ${session.password} ${session.password}`), 1500);
@@ -302,12 +340,52 @@ function connectBot(session) {
   });
 
   bot.on('end', () => {
+    if (session.isOnline && session.sessionStartTime) {
+      session.accumulatedTime += (Date.now() - session.sessionStartTime);
+    }
     session.isOnline = false;
-    session.status = 'Disconnected';
+    session.consecutiveDisconnects++;
+
+    if (session.consecutiveDisconnects >= 5) {
+      session.status = 'Checking Proxy Health...';
+      testProxyAlive(session.proxyInput).then((isAlive) => {
+        if (!activeBots.has(session.username)) return;
+        if (isAlive) {
+          session.consecutiveDisconnects = 0;
+          scheduleReconnect(session);
+        } else {
+          session.status = '⚠️ PROXY DOWN - NEEDS NEW PROXY';
+        }
+      });
+      return;
+    }
+
+    scheduleReconnect(session);
   });
+}
+
+function scheduleReconnect(session) {
+  const now = Date.now();
+  const baseDelay = 60000;
+
+  if (nextAvailableReconnectTime < now) {
+    nextAvailableReconnectTime = now;
+  }
+  nextAvailableReconnectTime += 15000;
+
+  const totalDelay = (nextAvailableReconnectTime - now) + baseDelay;
+  const delayInSeconds = Math.round(totalDelay / 1000);
+
+  session.status = `Disconnected (${session.consecutiveDisconnects}/5). Reconnecting in ${delayInSeconds}s...`;
+
+  setTimeout(() => {
+    if (activeBots.has(session.username) && !session.isOnline) {
+      connectBot(session);
+    }
+  }, totalDelay);
 }
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Dashboard active on port ${PORT}`);
 });
-      
+          
